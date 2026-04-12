@@ -8,7 +8,8 @@
     "basic_auth": "OGM0OTIxYjBiMDg5MDFmZWYzODljZTFhZjQ5YzRlMTAuc3ViYXJ1LmNvbTpJaGNkcjV4YmhIYlRSMk9aOGdRa3YyNTZicmhTYjc=",
     "api_key": "tTZipv6liF74PwMfk9Ed68AQ0bISswwf3iHQdqcF",
     "brand": "S",
-    "region": "EU"
+    "region": "EU",
+    "auth_service": "oneapp"
   },
   "NA": {
     "name": "NA",
@@ -19,6 +20,7 @@
     "basic_auth": "b25lYXBwOm9uZWFwcA==",
     "api_key": "tTZipv6liF74PwMfk9Ed68AQ0bISswwf3iHQdqcF",
     "brand": "S",
-    "region": "NA"
+    "region": "NA",
+    "auth_service": ""
   }
 }

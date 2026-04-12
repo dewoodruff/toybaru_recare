@@ -93,15 +93,15 @@ class AuthController:
     async def _perform_authentication(self, client: httpx.AsyncClient) -> str:
         """Stage 1: Submit credentials via ForgeRock callbacks, get tokenId.
 
-        The callback flow varies by realm but follows this pattern:
-        - alliance-subaru (EU): NameCallback("User Name") -> PasswordCallback -> tokenId
-        - tme (Toyota EU): locale callbacks -> NameCallback + ChoiceCallback -> PasswordCallback -> tokenId
-        We handle all callback types generically.
+        The callback flow varies by region:
+        - EU (alliance-subaru): locale callbacks -> NameCallback + ChoiceCallback -> PasswordCallback -> tokenId
+        - NA (tmna-native): ui_locales callback -> NameCallback -> PasswordCallback -> (possibly OTP) -> tokenId
         """
-        auth_url = (
-            f"{self.region.auth_realm.replace('oauth2', 'json')}"
-            f"/authenticate?authIndexType=service&authIndexValue=oneapp"
-        )
+        auth_base = self.region.auth_realm.replace('oauth2', 'json')
+        auth_url = f"{auth_base}/authenticate"
+        if self.region.auth_service:
+            auth_url += f"?authIndexType=service&authIndexValue={self.region.auth_service}"
+
         headers = {
             "Accept-API-Version": "resource=2.1, protocol=1.0",
             "Content-Type": "application/json",
@@ -112,7 +112,18 @@ class AuthController:
             "X-Brand": self.region.brand,
         }
 
-        data: dict[str, Any] = {}
+        # NA requires an initial ui_locales callback, EU starts with empty body
+        if not self.region.auth_service:
+            data: dict[str, Any] = {
+                "callbacks": [{
+                    "type": "NameCallback",
+                    "input": [{"name": "IDToken1", "value": "en-US"}],
+                    "output": [{"name": "prompt", "value": "ui_locales"}],
+                }]
+            }
+        else:
+            data = {}
+
         password_sent = False
         for _ in range(10):
             if "callbacks" in data:
@@ -122,8 +133,10 @@ class AuthController:
 
                     if cb_type == "NameCallback" and prompt == "User Name":
                         cb["input"][0]["value"] = self._username
-                    elif cb_type == "NameCallback" and prompt in ("Market Locale", "Internationalization", "UI Locales"):
-                        cb["input"][0]["value"] = "de-DE"
+                    elif cb_type == "NameCallback" and prompt in ("Market Locale", "Internationalization", "UI Locales", "ui_locales"):
+                        cb["input"][0]["value"] = "en-US"
+                    elif cb_type == "PasswordCallback" and prompt == "One Time Password":
+                        raise AuthenticationError("OTP/2FA required. Not yet supported.")
                     elif cb_type == "PasswordCallback":
                         cb["input"][0]["value"] = self._password
                         password_sent = True

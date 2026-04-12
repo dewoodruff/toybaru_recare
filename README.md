@@ -189,7 +189,7 @@ After the initial import, use the **Fetch new trips** button on the Trips tab to
 
 ## Important notes
 
-- **Tested on a 2023 Subaru Solterra in Germany (EU region) only.** The API endpoints and authentication flow may differ for other model years, other Subaru models, or other regions. The NA (North America) config is included but unverified.
+- **Tested on a 2023 Subaru Solterra in Germany (EU region) only.** The NA (North America) config is included and should work with the correct auth flow, but has not been fully verified. NA accounts that require OTP/2FA are not yet supported. Feedback from NA users is welcome.
 - **Subaru deletes trip data after approximately 12 months.** This is why local storage matters. Import your data regularly.
 - **The API does not provide kWh consumption per trip.** The endpoints for energy data exist but return 403 (Forbidden) for the Subaru API client. The estimated consumption shown in debug mode (`?debug` in the URL) is calculated from speed, regeneration ratio, and power ratio using an empirical model.
 - **Remote commands (lock/unlock) are fire-and-forget.** The car needs to wake up to process them, which can take 15-60 seconds. The dashboard sends the command and shows cached status.

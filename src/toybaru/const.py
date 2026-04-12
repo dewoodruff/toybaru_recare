@@ -20,8 +20,7 @@ class RegionConfig:
     api_key: str
     brand: str
     region: str
-
-
+    auth_service: str = "oneapp"
 # Built-in defaults
 _DEFAULTS = {
     "EU": RegionConfig(
@@ -45,6 +44,7 @@ _DEFAULTS = {
         api_key="tTZipv6liF74PwMfk9Ed68AQ0bISswwf3iHQdqcF",
         brand="S",
         region="NA",
+        auth_service="",
     ),
 }
 
