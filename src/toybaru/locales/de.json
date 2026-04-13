@@ -30,6 +30,7 @@
     "subtitle": "Mit deinem Subaru-Konto verbinden",
     "email": "E-Mail",
     "password": "Passwort",
+    "brand": "Marke",
     "region": "Region",
     "submit": "Anmelden",
     "signing_in": "Anmeldung...",

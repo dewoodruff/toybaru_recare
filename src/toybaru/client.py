@@ -26,7 +26,7 @@ class ToybaruClient:
         self,
         username: str,
         password: str,
-        region: str = "EU",
+        region: str = "subaru-eu",
     ) -> None:
         region_config = REGIONS.get(region)
         if not region_config:

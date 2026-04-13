@@ -89,8 +89,10 @@ td{padding:10px 12px;border-bottom:1px solid #1c2028;transition:background .1s}
     <input type="email" id="loginEmail" autocomplete="email">
     <label id="loginPwLabel"></label>
     <input type="password" id="loginPw" autocomplete="current-password">
+    <label id="loginBrandLabel"></label>
+    <select id="loginBrand" onchange="updateLoginRegions()"></select>
     <label id="loginRegionLabel"></label>
-    <select id="loginRegion"><option value="EU">EU</option><option value="NA">NA</option></select>
+    <select id="loginRegion"></select>
     <button class="btn btn-primary" style="width:100%;margin-top:16px;padding:8px" onclick="doLogin()" id="loginBtn"></button>
     <div class="error" id="loginError"></div>
   </div>
@@ -232,6 +234,7 @@ function applyI18n() {
   document.getElementById('loginSubtitle').textContent = t('login.subtitle');
   document.getElementById('loginEmailLabel').textContent = t('login.email');
   document.getElementById('loginPwLabel').textContent = t('login.password');
+  document.getElementById('loginBrandLabel').textContent = t('login.brand');
   document.getElementById('loginRegionLabel').textContent = t('login.region');
   document.getElementById('loginBtn').textContent = t('login.submit');
   // App
@@ -291,6 +294,33 @@ const SL={
 function ts(k){return t(SL[k]||k)}
 
 // --- Auth ---
+let brandsData = {};
+
+async function loadBrands() {
+  brandsData = await (await fetch('/api/brands')).json();
+  const sel = document.getElementById('loginBrand');
+  sel.innerHTML = '';
+  for (const [key, info] of Object.entries(brandsData)) {
+    const o = document.createElement('option');
+    o.value = key; o.textContent = info.label;
+    sel.appendChild(o);
+  }
+  updateLoginRegions();
+}
+
+function updateLoginRegions() {
+  const brand = document.getElementById('loginBrand').value;
+  const sel = document.getElementById('loginRegion');
+  sel.innerHTML = '';
+  const info = brandsData[brand];
+  if (!info) return;
+  for (const r of info.regions) {
+    const o = document.createElement('option');
+    o.value = r.key; o.textContent = r.name;
+    sel.appendChild(o);
+  }
+}
+
 async function checkAuth() {
   const r = await (await fetch('/api/auth/status')).json();
   if (r.authenticated) {
@@ -928,6 +958,7 @@ async function init() {
   // If stored lang not available, fall back
   if (!availableLangs.find(l => l.code === lang)) lang = availableLangs[0]?.code || 'en';
   await loadI18n();
+  await loadBrands();
   await checkAuth();
 }
 init();

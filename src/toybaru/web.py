@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request, Response, Cookie
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 from toybaru.client import ToybaruClient
-from toybaru.const import DATA_DIR, REGIONS
+from toybaru.const import DATA_DIR, REGIONS, BRANDS
 from toybaru.soc_tracker import log_snapshot, get_consumption_estimate, get_snapshot_history
 from toybaru.trip_store import (
     upsert_trips, get_trip_count, get_trips_from_db, get_stats,
@@ -48,7 +48,7 @@ async def _require_client(session_token: str | None) -> ToybaruClient:
                 client = ToybaruClient(
                     username=creds["username"],
                     password=creds["password"],
-                    region=creds.get("region", "EU"),
+                    region=creds.get("region", "subaru-eu"),
                 )
                 await client.login()
                 token = session_token or secrets.token_hex(32)
@@ -72,6 +72,18 @@ async def safe_call(coro):
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return HTMLResponse(content=(TEMPLATES_DIR / "dashboard.html").read_text())
+
+
+@app.get("/api/brands")
+async def api_brands():
+    """Return brand -> region mapping for the login UI."""
+    result = {}
+    for brand_key, brand_info in BRANDS.items():
+        result[brand_key] = {
+            "label": brand_info["label"],
+            "regions": [{"key": r, "name": REGIONS[r].name} for r in brand_info["regions"] if r in REGIONS],
+        }
+    return result
 
 
 @app.get("/api/languages")

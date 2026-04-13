@@ -21,10 +21,22 @@ class RegionConfig:
     brand: str
     region: str
     auth_service: str = "oneapp"
+# Brand -> Region mapping for the login UI
+BRANDS = {
+    "subaru": {
+        "label": "Subaru",
+        "regions": ["subaru-eu", "subaru-na"],
+    },
+    "toyota": {
+        "label": "Toyota",
+        "regions": ["toyota-eu"],
+    },
+}
+
 # Built-in defaults
 _DEFAULTS = {
-    "EU": RegionConfig(
-        name="EU",
+    "subaru-eu": RegionConfig(
+        name="Subaru EU",
         auth_realm="https://b2c-login.toyota-europe.com/oauth2/realms/root/realms/alliance-subaru",
         api_base_url="https://ctpa-oneapi.tceu-ctp-prd.toyotaconnectedeurope.io",
         client_id="8c4921b0b08901fef389ce1af49c4e10.subaru.com",
@@ -34,10 +46,10 @@ _DEFAULTS = {
         brand="S",
         region="EU",
     ),
-    "NA": RegionConfig(
-        name="NA",
+    "subaru-na": RegionConfig(
+        name="Subaru NA",
         auth_realm="https://login.subarudriverslogin.com/oauth2/realms/root/realms/tmna-native",
-        api_base_url="https://oneapi.telematicsct.com",
+        api_base_url="https://api.telematicsct.com",
         client_id="oneappsdkclient",
         redirect_uri="com.toyota.oneapp:/oauth2Callback",
         basic_auth="b25lYXBwOm9uZWFwcA==",
@@ -45,6 +57,17 @@ _DEFAULTS = {
         brand="S",
         region="NA",
         auth_service="",
+    ),
+    "toyota-eu": RegionConfig(
+        name="Toyota EU",
+        auth_realm="https://b2c-login.toyota-europe.com/oauth2/realms/root/realms/tme",
+        api_base_url="https://ctpa-oneapi.tceu-ctp-prd.toyotaconnectedeurope.io",
+        client_id="oneapp",
+        redirect_uri="com.toyota.oneapp:/oauth2Callback",
+        basic_auth="b25lYXBwOm9uZWFwcA==",
+        api_key="tTZipv6liF74PwMfk9Ed68AQ0bISswwf3iHQdqcF",
+        brand="T",
+        region="EU",
     ),
 }
 
@@ -59,7 +82,7 @@ def _load_regions() -> dict[str, RegionConfig]:
         try:
             user_config = json.loads(config_path.read_text())
             for region_name, overrides in user_config.items():
-                region_name = region_name.upper()
+                region_name = region_name.lower()
                 if region_name in regions:
                     # Merge: start with defaults, override with user values
                     base = {f.name: getattr(regions[region_name], f.name) for f in fields(RegionConfig)}
@@ -70,6 +93,12 @@ def _load_regions() -> dict[str, RegionConfig]:
                     regions[region_name] = RegionConfig(**overrides)
         except Exception as e:
             print(f"Warning: Could not load {config_path}: {e}")
+
+    # Backward compat aliases for old region keys
+    if "subaru-eu" in regions and "EU" not in regions:
+        regions["EU"] = regions["subaru-eu"]
+    if "subaru-na" in regions and "NA" not in regions:
+        regions["NA"] = regions["subaru-na"]
 
     return regions
 
