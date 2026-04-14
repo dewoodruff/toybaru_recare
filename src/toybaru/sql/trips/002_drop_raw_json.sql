@@ -57,3 +57,5 @@ DROP TABLE _trips_old;
 
 CREATE INDEX IF NOT EXISTS idx_trips_start_ts ON trips(start_ts);
 CREATE INDEX IF NOT EXISTS idx_trips_vin ON trips(vin);
+
+VACUUM;
