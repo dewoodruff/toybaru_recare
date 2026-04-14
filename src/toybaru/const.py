@@ -53,7 +53,7 @@ _DEFAULTS = {
         client_id="oneappsdkclient",
         redirect_uri="com.toyota.oneapp:/oauth2Callback",
         basic_auth="b25lYXBwOm9uZWFwcA==",
-        api_key="tTZipv6liF74PwMfk9Ed68AQ0bISswwf3iHQdqcF",
+        api_key="pypIHG015k4ABHWbcI4G0a94F7cC0JDo1OynpAsG", # thx to SwordfishLocal2677
         brand="S",
         region="NA",
         auth_service="",
