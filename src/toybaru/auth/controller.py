@@ -12,6 +12,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
+import os
 import secrets as _secrets
 import uuid
 from base64 import urlsafe_b64encode
@@ -23,10 +25,13 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import jwt
+from jwt import PyJWKClient
 
 from toybaru.const import CLIENT_VERSION, DATA_DIR, USER_AGENT, RegionConfig
 from toybaru.exceptions import AuthenticationError, OtpRequiredError, TokenExpiredError
 from toybaru.http import make_client
+
+logger = logging.getLogger(__name__)
 
 
 TOKEN_FILE = DATA_DIR / "tokens.json"
@@ -55,6 +60,7 @@ class AuthController:
         self._code_verifier: str | None = None
         self._pending_otp: dict | None = None
         self._auth_lock = asyncio.Lock()
+        self._jwks_client: PyJWKClient | None = None
         self._load_saved_tokens()
 
     @property
@@ -265,16 +271,16 @@ class AuthController:
         code_challenge: str | None = None,
     ) -> str:
         """Stage 2: Exchange tokenId for authorization code via redirect."""
-        challenge = code_challenge or "plain"
-        challenge_method = "S256" if code_challenge and code_challenge != "plain" else "plain"
+        if not code_challenge:
+            raise ValueError("PKCE code challenge missing")
         authorize_url = (
             f"{self.region.auth_realm}/authorize"
             f"?client_id={self.region.client_id}"
             f"&scope=openid+profile+write"
             f"&response_type=code"
             f"&redirect_uri={self.region.redirect_uri}"
-            f"&code_challenge={challenge}"
-            f"&code_challenge_method={challenge_method}"
+            f"&code_challenge={code_challenge}"
+            f"&code_challenge_method=S256"
         )
         cookie_header = f"iPlanetDirectoryPro={token_id}"
         if cookies:
@@ -315,8 +321,11 @@ class AuthController:
             "code": auth_code,
             "redirect_uri": self.region.redirect_uri,
             "grant_type": "authorization_code",
-            "code_verifier": self._code_verifier or "plain",
+            "code_verifier": self._code_verifier,
         }
+
+        if not token_data["code_verifier"]:
+            raise ValueError("PKCE code verifier missing")
 
         resp = await client.post(token_url, headers=token_headers, data=token_data)
         if resp.status_code != 200:
@@ -351,17 +360,40 @@ class AuthController:
 
             self._update_tokens(resp.json())
 
+    def _get_jwks_client(self) -> PyJWKClient:
+        """Lazily initialize and return the JWKS client."""
+        if self._jwks_client is None:
+            jwks_url = f"{self.region.auth_realm}/connect/jwks_uri"
+            self._jwks_client = PyJWKClient(jwks_url, cache_keys=True)
+        return self._jwks_client
+
     def _update_tokens(self, data: dict[str, Any]) -> None:
         """Parse token response and persist."""
         for field in ("access_token", "id_token", "refresh_token", "expires_in"):
             if field not in data:
                 raise AuthenticationError(f"Missing field in token response: {field}")
 
-        claims = jwt.decode(
-            data["id_token"],
-            algorithms=["RS256"],
-            options={"verify_signature": False, "verify_aud": False},
-        )
+        id_token = data["id_token"]
+        try:
+            jwks_client = self._get_jwks_client()
+            signing_key = jwks_client.get_signing_key_from_jwt(id_token)
+            claims = jwt.decode(
+                id_token,
+                signing_key.key,
+                algorithms=["RS256"],
+                audience=self.region.client_id,
+                options={
+                    "verify_signature": True,
+                    "verify_aud": True,
+                    "verify_exp": True,
+                },
+            )
+        except jwt.exceptions.PyJWKClientError as e:
+            logger.warning("JWKS fetch failed: %s", e)
+            raise AuthenticationError(f"Failed to verify id_token signature: {e}") from e
+        except jwt.exceptions.InvalidTokenError as e:
+            raise AuthenticationError(f"Invalid id_token: {e}") from e
+
         # Fallback through uuid -> extension_tmsguid -> sub
         user_uuid = claims.get("uuid") or claims.get("extension_tmsguid") or claims.get("sub")
         if not user_uuid:
@@ -378,11 +410,23 @@ class AuthController:
         self._save_tokens()
 
     def _save_tokens(self) -> None:
-        """Persist tokens to disk."""
+        """Persist tokens to disk with restrictive permissions."""
         if not self._token_info:
             return
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        TOKEN_FILE.write_text(json.dumps(asdict(self._token_info), indent=2))
+        content = json.dumps(asdict(self._token_info), indent=2)
+        if os.name != "nt":
+            fd = os.open(
+                str(TOKEN_FILE),
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                0o600,
+            )
+            try:
+                os.write(fd, content.encode())
+            finally:
+                os.close(fd)
+        else:
+            TOKEN_FILE.write_text(content)
 
     def _load_saved_tokens(self) -> None:
         """Load tokens from disk if available."""

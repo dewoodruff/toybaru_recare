@@ -7,7 +7,9 @@ import hashlib
 import json
 import logging
 import os
+import re
 import secrets
+import time
 from datetime import date, timedelta
 from pathlib import Path
 from secrets import token_hex
@@ -15,6 +17,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response, Cookie
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from toybaru.client import ToybaruClient
 from toybaru.const import DATA_DIR, REGIONS, BRANDS
@@ -32,12 +35,61 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 LOCALES_DIR = Path(__file__).parent / "locales"
 CREDS_FILE = DATA_DIR / "credentials.json"
 META_FILE = DATA_DIR / "session_meta.json"
-SESSION_SECRET = os.environ.get("TOYBARU_SESSION_SECRET", secrets.token_hex(32))
 
 app = FastAPI(title="Toybaru ReCare")
 
-# Session store: token -> ToybaruClient
-_sessions: dict[str, ToybaruClient] = {}
+
+# --- Security headers middleware (Fix 5) ---
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
+
+app.add_middleware(_SecurityHeadersMiddleware)
+
+
+# --- Rate limiting (Fix 8) ---
+class _RateLimiter:
+    def __init__(self, max_attempts: int, window_seconds: int, max_keys: int = 10000):
+        self._attempts: dict[str, list[float]] = {}
+        self._max = max_attempts
+        self._window = window_seconds
+        self._max_keys = max_keys
+
+    def check(self, key: str) -> bool:
+        """Returns True if allowed, False if rate limited."""
+        now = time.time()
+        if len(self._attempts) > self._max_keys:
+            self._cleanup(now)
+        attempts = self._attempts.get(key, [])
+        attempts = [t for t in attempts if now - t < self._window]
+        if len(attempts) >= self._max:
+            self._attempts[key] = attempts
+            return False
+        attempts.append(now)
+        self._attempts[key] = attempts
+        return True
+
+    def _cleanup(self, now: float):
+        self._attempts = {
+            k: [t for t in v if now - t < self._window]
+            for k, v in self._attempts.items()
+            if any(now - t < self._window for t in v)
+        }
+
+_login_limiter = _RateLimiter(max_attempts=5, window_seconds=900)
+_otp_limiter = _RateLimiter(max_attempts=5, window_seconds=300)
+_command_limiter = _RateLimiter(max_attempts=20, window_seconds=60)
+
+
+# --- Session store: token -> (ToybaruClient, created_at) (Fix 9) ---
+_SESSION_MAX_AGE = 86400  # 24 hours
+_OTP_MAX_AGE = 300  # 5 minutes
+
+_sessions: dict[str, tuple[ToybaruClient, float]] = {}
 _csrf_tokens: dict[str, str] = {}
 _otp_pending: dict[str, dict] = {}
 
@@ -45,7 +97,31 @@ _otp_pending: dict[str, dict] = {}
 def _get_session_client(session_token: str | None) -> ToybaruClient | None:
     if not session_token:
         return None
-    return _sessions.get(session_token)
+    entry = _sessions.get(session_token)
+    if entry is None:
+        return None
+    client, created_at = entry
+    if time.time() - created_at > _SESSION_MAX_AGE:
+        # Session expired — force re-login
+        _sessions.pop(session_token, None)
+        _csrf_tokens.pop(session_token, None)
+        return None
+    return client
+
+
+def _is_secure_request(request: Request) -> bool:
+    """Determine if cookies should have the Secure flag."""
+    if os.environ.get("TOYBARU_SECURE_COOKIES", "").lower() == "true":
+        return True
+    return request.headers.get("x-forwarded-proto") == "https"
+
+
+def _validate_vin(vin: str) -> str:
+    """Validate and normalize a VIN."""
+    v = vin.upper()
+    if not re.match(r'^[A-HJ-NPR-Z0-9]{17}$', v):
+        raise HTTPException(status_code=400, detail="Invalid VIN format")
+    return v
 
 
 def _require_csrf(request: Request, session: str | None) -> None:
@@ -67,9 +143,6 @@ async def _require_client(session_token: str | None) -> ToybaruClient:
                 meta = json.loads(META_FILE.read_text())
                 from toybaru.auth.controller import TOKEN_FILE
                 if TOKEN_FILE.exists():
-                    # We have tokens on disk — try to restore
-                    # We need username/password but meta doesn't store password
-                    # Just create client with dummy password — tokens will load from disk
                     client = ToybaruClient(
                         username=meta["username"],
                         password="",
@@ -77,27 +150,26 @@ async def _require_client(session_token: str | None) -> ToybaruClient:
                     )
                     if client.auth.is_authenticated:
                         token = session_token or secrets.token_hex(32)
-                        _sessions[token] = client
+                        _sessions[token] = (client, time.time())
                         return client
-            except Exception:
-                pass
-        # Legacy: try credentials.json
-        if CREDS_FILE.exists():
-            try:
-                creds = json.loads(CREDS_FILE.read_text())
-                client = ToybaruClient(
-                    username=creds["username"],
-                    password=creds.get("password", ""),
-                    region=creds.get("region", "subaru-eu"),
-                )
-                await client.login()
-                token = session_token or secrets.token_hex(32)
-                _sessions[token] = client
-                return client
             except Exception:
                 pass
         raise HTTPException(status_code=401, detail="Not authenticated")
     return client
+
+
+def _write_meta_file(data: dict) -> None:
+    """Write session_meta.json with restrictive permissions."""
+    content = json.dumps(data)
+    path = str(META_FILE)
+    if os.name != "nt":
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, content.encode())
+        finally:
+            os.close(fd)
+    else:
+        META_FILE.write_text(content)
 
 
 async def safe_call(coro):
@@ -143,6 +215,8 @@ async def api_languages():
 
 @app.get("/api/locale/{lang}")
 async def api_locale(lang: str):
+    if not re.match(r'^[a-z]{2}(-[A-Z]{2})?$', lang):
+        raise HTTPException(status_code=400, detail="Invalid locale")
     path = LOCALES_DIR / f"{lang}.json"
     if not path.exists():
         path = LOCALES_DIR / "en.json"
@@ -161,6 +235,11 @@ async def api_login(request: Request, response: Response):
     if not username or not password:
         return JSONResponse({"error": "Missing credentials"}, status_code=400)
 
+    # Rate limit by IP
+    client_ip = request.client.host if request.client else "unknown"
+    if not _login_limiter.check(client_ip):
+        raise HTTPException(status_code=429, detail="Too many attempts")
+
     try:
         client = ToybaruClient(username=username, password=password, region=region)
         uuid = await client.login()
@@ -172,6 +251,7 @@ async def api_login(request: Request, response: Response):
             "client": client,
             "username": username,
             "region": region,
+            "created_at": time.time(),
         }
         return JSONResponse({
             "needs_otp": True,
@@ -183,7 +263,7 @@ async def api_login(request: Request, response: Response):
 
     # Create session
     token = secrets.token_hex(32)
-    _sessions[token] = client
+    _sessions[token] = (client, time.time())
 
     # Generate CSRF token
     csrf = secrets.token_hex(16)
@@ -191,12 +271,10 @@ async def api_login(request: Request, response: Response):
 
     # Save only username+region (NO password)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    META_FILE.write_text(json.dumps({
-        "username": username,
-        "region": region,
-    }))
+    _write_meta_file({"username": username, "region": region})
 
-    response.set_cookie("session", token, httponly=True, samesite="strict", max_age=86400 * 30)
+    secure = _is_secure_request(request)
+    response.set_cookie("session", token, httponly=True, samesite="strict", max_age=86400 * 30, secure=secure)
     return {
         "uuid": uuid,
         "vehicles": [v.model_dump() for v in vehicles],
@@ -218,6 +296,16 @@ async def api_login_otp(request: Request, response: Response):
     if not pending:
         return JSONResponse({"error": "OTP session expired or invalid"}, status_code=400)
 
+    # Check OTP session expiry
+    if time.time() - pending.get("created_at", 0) > _OTP_MAX_AGE:
+        return JSONResponse({"error": "OTP session expired"}, status_code=400)
+
+    # Rate limit by IP + username
+    client_ip = request.client.host if request.client else "unknown"
+    rate_key = f"{client_ip}:{pending['username']}"
+    if not _otp_limiter.check(rate_key):
+        raise HTTPException(status_code=429, detail="Too many attempts")
+
     client = pending["client"]
     try:
         uuid = await client.submit_otp(code)
@@ -227,18 +315,16 @@ async def api_login_otp(request: Request, response: Response):
         return JSONResponse({"error": "OTP verification failed"}, status_code=401)
 
     token = secrets.token_hex(32)
-    _sessions[token] = client
+    _sessions[token] = (client, time.time())
 
     csrf = secrets.token_hex(16)
     _csrf_tokens[token] = csrf
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    META_FILE.write_text(json.dumps({
-        "username": pending["username"],
-        "region": pending["region"],
-    }))
+    _write_meta_file({"username": pending["username"], "region": pending["region"]})
 
-    response.set_cookie("session", token, httponly=True, samesite="strict", max_age=86400 * 30)
+    secure = _is_secure_request(request)
+    response.set_cookie("session", token, httponly=True, samesite="strict", max_age=86400 * 30, secure=secure)
     return {
         "uuid": uuid,
         "vehicles": [v.model_dump() for v in vehicles],
@@ -252,18 +338,20 @@ async def api_auth_status(session: str | None = Cookie(None)):
     if client:
         csrf = _csrf_tokens.get(session, "")
         return {"authenticated": True, "csrf_token": csrf}
-    # Try saved creds
-    if META_FILE.exists() or CREDS_FILE.exists():
+    # Try saved tokens (without legacy credentials.json password login)
+    if META_FILE.exists():
         try:
             client = await _require_client(session)
-            return {"authenticated": True}
+            csrf = _csrf_tokens.get(session, "")
+            return {"authenticated": True, "csrf_token": csrf}
         except Exception:
             pass
     return {"authenticated": False}
 
 
 @app.post("/api/logout")
-async def api_logout(response: Response, session: str | None = Cookie(None)):
+async def api_logout(request: Request, response: Response, session: str | None = Cookie(None)):
+    _require_csrf(request, session)
     if session and session in _sessions:
         del _sessions[session]
     if session and session in _csrf_tokens:
@@ -290,6 +378,7 @@ async def api_vehicles(session: str | None = Cookie(None)):
 
 @app.get("/api/all/{vin}")
 async def api_all(vin: str, session: str | None = Cookie(None)):
+    vin = _validate_vin(vin)
     client = await _require_client(session)
     battery = await safe_call(client.get_electric_status(vin))
     telemetry = await safe_call(client.get_telemetry(vin))
@@ -321,12 +410,14 @@ async def api_all(vin: str, session: str | None = Cookie(None)):
 
 @app.get("/api/battery/{vin}")
 async def api_battery(vin: str, session: str | None = Cookie(None)):
+    vin = _validate_vin(vin)
     client = await _require_client(session)
     return await safe_call(client.get_electric_status(vin))
 
 
 @app.post("/api/refresh/{vin}")
 async def api_refresh(vin: str, request: Request, session: str | None = Cookie(None)):
+    vin = _validate_vin(vin)
     _require_csrf(request, session)
     client = await _require_client(session)
     return await safe_call(client.refresh_status(vin))
@@ -335,6 +426,7 @@ async def api_refresh(vin: str, request: Request, session: str | None = Cookie(N
 @app.post("/api/command/{vin}/{command}")
 async def api_command(vin: str, command: str, request: Request, session: str | None = Cookie(None)):
     """Send remote command."""
+    vin = _validate_vin(vin)
     allowed = {
         "door-lock", "door-unlock",
         "trunk-lock", "trunk-unlock",
@@ -347,12 +439,16 @@ async def api_command(vin: str, command: str, request: Request, session: str | N
     if command not in allowed:
         return JSONResponse({"error": f"Unknown command: {command}"}, status_code=400)
     _require_csrf(request, session)
+    # Rate limit commands by session
+    if session and not _command_limiter.check(session):
+        raise HTTPException(status_code=429, detail="Too many attempts")
     client = await _require_client(session)
     return await safe_call(client.send_command(vin, command))
 
 
 @app.post("/api/sync/{vin}")
 async def api_sync(vin: str, request: Request, session: str | None = Cookie(None)):
+    vin = _validate_vin(vin)
     _require_csrf(request, session)
     client = await _require_client(session)
     latest = get_latest_trip_timestamp()
@@ -391,6 +487,7 @@ async def api_sync(vin: str, request: Request, session: str | None = Cookie(None
 
 @app.get("/api/trips/{vin}")
 async def api_trips(vin: str, days: int = 30, session: str | None = Cookie(None)):
+    vin = _validate_vin(vin)
     client = await _require_client(session)
     return await safe_call(client.get_trips(
         vin, from_date=date.today() - timedelta(days=days), to_date=date.today(),
@@ -439,6 +536,7 @@ async def api_db_trip(trip_id: str, session: str | None = Cookie(None)):
 
 @app.get("/api/import/{vin}")
 async def api_import(vin: str, from_date: str = "2020-01-01", to_date: str | None = None, session: str | None = Cookie(None)):
+    vin = _validate_vin(vin)
     if to_date is None:
         to_date = str(date.today())
 
@@ -731,10 +829,12 @@ async def api_route_svg(trip_id: str, width: int = 800, height: int = 500, sessi
     }
 
 
-# --- Raw API proxy ---
+# --- Raw API proxy (gated behind TOYBARU_DEBUG) ---
 
 @app.get("/api/raw/{path:path}")
 async def api_raw(path: str, vin: str | None = None, session: str | None = Cookie(None)):
+    if os.environ.get("TOYBARU_DEBUG", "").lower() != "true":
+        raise HTTPException(status_code=403, detail="Debug endpoint disabled")
     client = await _require_client(session)
     endpoint = f"/{path}" if not path.startswith("/") else path
     return await safe_call(client.raw_request("GET", endpoint, vin=vin))

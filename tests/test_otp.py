@@ -71,7 +71,7 @@ def _oauth_tokens():
     """OAuth token exchange response."""
     # Minimal JWT for id_token with a uuid claim
     import jwt as pyjwt
-    id_token = pyjwt.encode({"uuid": "user-uuid-abc", "aud": "oneappsdkclient"}, "secret", algorithm="HS256")
+    id_token = pyjwt.encode({"uuid": "user-uuid-abc", "aud": "testclient"}, "secret", algorithm="HS256")
     return {
         "access_token": "access-token-123",
         "refresh_token": "refresh-token-456",
@@ -166,6 +166,12 @@ class TestAuthControllerOtp:
             resp.headers = {"location": "com.test.app:/callback?code=auth-code-789"}
             return resp
 
+        # Mock JWKS client to allow HS256 test tokens
+        mock_jwks = MagicMock()
+        mock_signing_key = MagicMock()
+        mock_signing_key.key = "secret"
+        mock_jwks.get_signing_key_from_jwt.return_value = mock_signing_key
+
         with patch("toybaru.auth.controller.make_client") as mock_make:
             mock_client = AsyncMock()
             mock_client.post = mock_post
@@ -180,7 +186,10 @@ class TestAuthControllerOtp:
 
             with patch("toybaru.auth.controller.TOKEN_FILE") as mock_tf:
                 mock_tf.exists.return_value = False
-                await ctrl.submit_otp("123456")
+                with patch.object(ctrl, '_get_jwks_client', return_value=mock_jwks):
+                    with patch("jwt.decode") as mock_decode:
+                        mock_decode.return_value = {"uuid": "user-uuid-abc", "aud": "testclient"}
+                        await ctrl.submit_otp("123456")
 
         assert ctrl._pending_otp is None
         assert ctrl.is_authenticated

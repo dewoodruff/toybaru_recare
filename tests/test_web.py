@@ -1,6 +1,7 @@
 """Tests for web API endpoints."""
 
 import json
+import time
 from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
@@ -22,7 +23,7 @@ def _authed_client():
     mock_client.api._is_na = False
 
     token = "test-session-token"
-    _sessions[token] = mock_client
+    _sessions[token] = (mock_client, time.time())
 
     c = TestClient(app, cookies={"session": token})
     return c
@@ -72,7 +73,11 @@ def test_locale_fallback():
 
 
 def test_auth_status_unauthenticated():
-    resp = _client().get("/api/auth/status")
+    from unittest.mock import patch, MagicMock
+    mock_path = MagicMock()
+    mock_path.exists.return_value = False
+    with patch("toybaru.web.META_FILE", mock_path):
+        resp = _client().get("/api/auth/status")
     assert resp.status_code == 200
     assert resp.json()["authenticated"] == False
 

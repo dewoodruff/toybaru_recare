@@ -213,7 +213,14 @@ function t(path) {
 }
 
 function tip(label, descKey) {
-  return `<span class="tip">${label}<span class="tip-text">${t(descKey)}</span></span>`;
+  const span = document.createElement('span');
+  span.className = 'tip';
+  span.textContent = label;
+  const tipText = document.createElement('span');
+  tipText.className = 'tip-text';
+  tipText.textContent = t(descKey);
+  span.appendChild(tipText);
+  return span.outerHTML;
 }
 
 function setLang(l) {
@@ -310,6 +317,8 @@ function sbarHtml(p){return`<div class="sbar"><div class="sbar-eco" style="width
 function fmtDate(s){return s?new Date(s).toLocaleString(LC,{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'?'}
 function fmtKm(m){return m!=null?(m/1000).toFixed(1):'?'}
 function scoreClass(s){return s>=80?'score-good':s>=60?'score-mid':'score-bad'}
+
+function _escAttr(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
 const SL={
   'carstatus_item_driver_door':'status.driver_door','carstatus_item_driver_rear_door':'status.driver_rear_door',
@@ -502,17 +511,20 @@ async function refreshBattery() {
 function renderStatus(d) {
   const el=document.getElementById('statusCard');
   if(!d||d.error){el.innerHTML=`<div class="section-title">${t('status.title')}</div><div class="error" id="statusErr"></div>`;document.getElementById('statusErr').textContent=d?.error||'N/A';return}
-  let h=`<div class="section-title">${t('status.title')}</div>`;
+  el.textContent='';
+  const titleDiv=document.createElement('div');titleDiv.className='section-title';titleDiv.textContent=t('status.title');el.appendChild(titleDiv);
   for(const cat of d.vehicleStatus||[]){
-    h+=`<div style="font-size:11px;color:var(--muted);margin-top:6px">${ts(cat.category)}</div>`;
+    const catDiv=document.createElement('div');catDiv.style.cssText='font-size:11px;color:var(--muted);margin-top:6px';catDiv.textContent=ts(cat.category);el.appendChild(catDiv);
     for(const sec of cat.sections||[]){
-      const tags=(sec.values||[]).map(v=>{const bad=v.value==='carstatus_open'||v.value==='carstatus_unlocked';return`<span class="tag ${bad?'tag-warn':'tag-ok'}">${ts(v.value)}</span>`}).join(' ');
-      h+=`<div class="row"><span class="k">${ts(sec.section)}</span><span>${tags}</span></div>`;
+      const rowDiv=document.createElement('div');rowDiv.className='row';
+      const kSpan=document.createElement('span');kSpan.className='k';kSpan.textContent=ts(sec.section);rowDiv.appendChild(kSpan);
+      const vSpan=document.createElement('span');
+      for(const v of (sec.values||[])){const tag=document.createElement('span');const bad=v.value==='carstatus_open'||v.value==='carstatus_unlocked';tag.className='tag '+(bad?'tag-warn':'tag-ok');tag.textContent=ts(v.value);vSpan.appendChild(tag);vSpan.appendChild(document.createTextNode(' '))}
+      rowDiv.appendChild(vSpan);el.appendChild(rowDiv);
     }
   }
-  if(d.telemetry?.odo?.value!=null)h+=`<div class="row" style="margin-top:8px"><span class="k">${t('status.odometer')}</span><span>${d.telemetry.odo.value.toLocaleString(LC)} ${normUnit(d.telemetry.odo.unit)||distLabel()}</span></div>`;
-  if(d.occurrenceDate)h+=`<div class="row"><span class="k">${t('status.last_update')}</span><span>${fmtDate(d.occurrenceDate)}</span></div>`;
-  el.innerHTML=h;
+  if(d.telemetry?.odo?.value!=null){const r=document.createElement('div');r.className='row';r.style.marginTop='8px';r.innerHTML=`<span class="k">${t('status.odometer')}</span><span>${d.telemetry.odo.value.toLocaleString(LC)} ${normUnit(d.telemetry.odo.unit)||distLabel()}</span>`;el.appendChild(r)}
+  if(d.occurrenceDate){const r=document.createElement('div');r.className='row';r.innerHTML=`<span class="k">${t('status.last_update')}</span><span>${fmtDate(d.occurrenceDate)}</span>`;el.appendChild(r)}
 }
 
 function renderLocation(d) {
@@ -549,7 +561,7 @@ function renderRemote() {
 
   function grp(label, btns) {
     let g=`<div style="margin-bottom:8px"><div class="meta" style="margin-bottom:4px">${label}</div><div style="display:flex;gap:6px;flex-wrap:wrap">`;
-    for (const b of btns) g+=`<button class="btn btn-sm" onclick="sendCommand('${b.cmd}')" title="${b.tip}">${b.icon} ${b.label}</button>`;
+    for (const b of btns) g+=`<button class="btn btn-sm" data-cmd="${_escAttr(b.cmd)}" title="${_escAttr(b.tip)}">${b.icon} ${_escAttr(b.label)}</button>`;
     g+=`</div></div>`;
     return g;
   }
@@ -582,6 +594,10 @@ function renderRemote() {
 
   h+=`<div class="meta" id="remoteStatus" style="margin-top:8px"></div>`;
   el.innerHTML=h;
+  el.addEventListener('click', function(e) {
+    const btn = e.target.closest('[data-cmd]');
+    if (btn) sendCommand(btn.dataset.cmd);
+  });
 }
 
 async function sendCommand(cmd) {
@@ -617,7 +633,7 @@ async function renderLastTrip() {
 
   let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <div class="section-title" style="margin:0">${t('app.last_trip')}</div>
-    <button class="btn btn-sm" onclick="showTrip('${r.id}')">${t('app.details')} &rarr;</button>
+    <button class="btn btn-sm" data-trip-id="${_escAttr(r.id)}">${t('app.details')} &rarr;</button>
   </div>`;
 
   h+=`<div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">`;
@@ -650,6 +666,7 @@ async function renderLastTrip() {
   }
 
   el.innerHTML=h;
+  el.querySelector('[data-trip-id]')?.addEventListener('click', function() { showTrip(this.dataset.tripId); });
 }
 
 // --- Trips ---
@@ -688,7 +705,7 @@ function renderTripsTable(trips) {
     const d2=r.start_ts?new Date(r.start_ts):null;
     const dateStr=d2?d2.toLocaleDateString(LC,{weekday:'short',day:'2-digit',month:'short'}):'?';
     const timeStr=d2?d2.toLocaleTimeString(LC,{hour:'2-digit',minute:'2-digit'}):'';
-    h+=`<tr class="clickable-row" onclick="showTrip('${r.id}')">`;
+    h+=`<tr class="clickable-row" data-trip-id="${_escAttr(r.id)}">`;
     h+=`<td><span class="trip-date">${dateStr}</span><br><span class="meta">${timeStr}</span></td>`;
     h+=`<td class="num"><b>${fmtKm(r.length_m)}</b> <span class="meta">${distLabel()}</span></td>`;
     h+=`<td class="num">${r.duration_s?Math.round(r.duration_s/60):'?'} <span class="meta">min</span></td>`;
@@ -701,6 +718,10 @@ function renderTripsTable(trips) {
     h+=`</tr>`;
   }
   h+='</tbody></table></div>';document.getElementById('tripsTable').innerHTML=h;
+  document.getElementById('tripsTable').addEventListener('click', function(e) {
+    const row = e.target.closest('[data-trip-id]');
+    if (row) showTrip(row.dataset.tripId);
+  });
 }
 
 // --- Trip Detail ---

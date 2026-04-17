@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import secrets
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -24,7 +25,7 @@ def client():
 
     token = "test-export-session"
     csrf = secrets.token_hex(16)
-    _sessions[token] = mock_client
+    _sessions[token] = (mock_client, time.time())
     _csrf_tokens[token] = csrf
 
     c = TestClient(app, cookies={"session": token})
