@@ -572,7 +572,7 @@ function renderBattery(d) {
   if(!d||d.error){el.innerHTML=`<div class="section-title">${t('battery.title')}</div><div class="error" id="batErr"></div>`;document.getElementById('batErr').textContent=d?.error||'N/A';return}
   const pct=d.batteryLevel,range=d.evRange?.value,rangeAc=d.evRangeWithAc?.value,unit=d.evRange?.unit||'km';
   const cs=d.chargingStatus||'?',csMap={none:t('battery.not_charging'),charging:t('battery.charging'),connected:t('battery.connected')};
-  const color=pct>50?'var(--green)':pct>20?'var(--yellow)':'var(--red)';
+  const color=pct>80?'var(--yellow)':pct>=10?'var(--green)':'var(--red)';
   el.innerHTML=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center">${t('battery.title')} <button class="btn btn-sm" onclick="refreshBattery()" id="batRefreshBtn">${t('battery.refresh_btn')}</button></div>
     <div class="bat-pct" style="color:${color}">${pct!=null?pct+'%':'?'}</div>
     <div class="bat-bar"><div class="bat-fill" style="width:${pct||0}%;background:${color}"></div></div>
