@@ -907,10 +907,10 @@ function renderTirePressure(tel, status) {
     h+=`<rect x="42" y="14" width="22" height="30" rx="4" fill="${winColor(pw)}" opacity="0.25"/>`;
     h+=`<rect x="16" y="56" width="22" height="24" rx="4" fill="${winColor(rdw)}" opacity="0.25"/>`;
     h+=`<rect x="42" y="56" width="22" height="24" rx="4" fill="${winColor(rpw)}" opacity="0.25"/>`;
-    if(sr!=null) h+=`<rect x="28" y="46" width="24" height="8" rx="3" fill="${winColor(sr)}" opacity="0.25" stroke="${winColor(sr)}" stroke-width="0.5"/>`;
+    if(sr===1||sr===2) h+=`<rect x="28" y="46" width="24" height="8" rx="3" fill="${winColor(sr)}" opacity="0.25" stroke="${winColor(sr)}" stroke-width="0.5"/>`;
     h+=`</svg></div>`;
     const wins=[{label:'Driver Front',v:dw},{label:'Pass. Front',v:pw},{label:'Driver Rear',v:rdw},{label:'Pass. Rear',v:rpw}];
-    if(sr!=null)wins.push({label:'Sunroof',v:sr});
+    if(sr===1||sr===2)wins.push({label:'Sunroof',v:sr});
     for(const w of wins){
       const cls=w.v===2?'tag-ok':w.v===1?'tag-warn':'';
       h+=`<div class="row" style="font-size:11px"><span class="k">${w.label}</span><span class="tag ${cls}">${winLabel(w.v)}</span></div>`;
