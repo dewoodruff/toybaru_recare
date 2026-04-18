@@ -569,7 +569,7 @@ async function loadOverview() {
   renderVehicleHero(allData.vehicle, allData.battery?.solar);
   renderBattery(allData.battery, allData);
   renderStatus(allData.status);
-  renderTirePressure(allData.telemetry);
+  renderTirePressure(allData.telemetry, allData.status);
   renderLocation(allData.location);
   renderEfficiency(allData);
   renderRemote(allData.vehicle?.remote_capabilities, allData.climate_settings);
@@ -771,21 +771,33 @@ function renderStatus(d) {
   if(!d||d.error){el.innerHTML=`<div class="section-title">${t('status.title')}</div><div class="error" id="statusErr"></div>`;document.getElementById('statusErr').textContent=d?.error||'N/A';return}
   el.textContent='';
   const titleDiv=document.createElement('div');titleDiv.className='section-title';titleDiv.textContent=t('status.title');el.appendChild(titleDiv);
+  // Skip categories handled by the Tires & Windows card
+  const skipCats=new Set(['Driver Side','Passenger Side','Other']);
+  let hasContent=false;
   for(const cat of d.vehicleStatus||[]){
+    if(skipCats.has(cat.category))continue;
+    hasContent=true;
     const catDiv=document.createElement('div');catDiv.style.cssText='font-size:11px;color:var(--muted);margin-top:6px';catDiv.textContent=ts(cat.category);el.appendChild(catDiv);
     for(const sec of cat.sections||[]){
       const rowDiv=document.createElement('div');rowDiv.className='row';
       const kSpan=document.createElement('span');kSpan.className='k';kSpan.textContent=ts(sec.section);rowDiv.appendChild(kSpan);
       const vSpan=document.createElement('span');
-      for(const v of (sec.values||[])){const tag=document.createElement('span');const bad=v.value==='carstatus_open'||v.value==='carstatus_unlocked';tag.className='tag '+(bad?'tag-warn':'tag-ok');tag.textContent=ts(v.value);vSpan.appendChild(tag);vSpan.appendChild(document.createTextNode(' '))}
+      for(const v of (sec.values||[])){const tag=document.createElement('span');const bad=/open|unlocked/i.test(v.value);tag.className='tag '+(bad?'tag-warn':'tag-ok');tag.textContent=ts(v.value);vSpan.appendChild(tag);vSpan.appendChild(document.createTextNode(' '))}
       rowDiv.appendChild(vSpan);el.appendChild(rowDiv);
     }
   }
-  if(d.telemetry?.odo?.value!=null){const r=document.createElement('div');r.className='row';r.style.marginTop='8px';r.innerHTML=`<span class="k">${t('status.odometer')}</span><span>${d.telemetry.odo.value.toLocaleString(LC)} ${normUnit(d.telemetry.odo.unit)||distLabel()}</span>`;el.appendChild(r)}
-  if(d.occurrenceDate){const r=document.createElement('div');r.className='row';r.innerHTML=`<span class="k">${t('status.last_update')}</span><span>${fmtDate(d.occurrenceDate)}</span>`;el.appendChild(r)}
+  if(d.cautionOverallCount!=null){
+    const r=document.createElement('div');r.className='row';r.style.marginTop=hasContent?'8px':'0';
+    const cnt=d.cautionOverallCount;
+    r.innerHTML=`<span class="k">Vehicle Warnings</span><span class="tag ${cnt>0?'tag-warn':'tag-ok'}">${cnt>0?cnt+' warning(s)':'None'}</span>`;
+    el.appendChild(r);hasContent=true;
+  }
+  if(d.telemetry?.odo?.value!=null){const r=document.createElement('div');r.className='row';r.style.marginTop='8px';r.innerHTML=`<span class="k">${t('status.odometer')}</span><span>${d.telemetry.odo.value.toLocaleString(LC)} ${normUnit(d.telemetry.odo.unit)||distLabel()}</span>`;el.appendChild(r);hasContent=true}
+  if(d.occurrenceDate){const r=document.createElement('div');r.className='row';r.innerHTML=`<span class="k">${t('status.last_update')}</span><span>${fmtDate(d.occurrenceDate)}</span>`;el.appendChild(r);hasContent=true}
+  if(!hasContent){el.innerHTML=`<div class="section-title">${t('status.title')}</div><div class="meta">No additional status data</div>`}
 }
 
-function renderTirePressure(tel) {
+function renderTirePressure(tel, status) {
   const el=document.getElementById('tireCard');
   if(!tel||tel.error){el.style.display='none';return}
   const fl=tel.flTirePressure, fr=tel.frTirePressure, rl=tel.rlTirePressure, rr=tel.rrTirePressure;
@@ -795,94 +807,163 @@ function renderTirePressure(tel) {
   function tireColor(tire){
     if(!tire)return'var(--muted)';
     if(tire.displayLowTirePressureWarning)return'var(--yellow)';
-    const v=tire.value;
-    if(v<30||v>50)return'var(--yellow)';
-    return'var(--green)';
+    const v=tire.value;if(v<30||v>50)return'var(--yellow)';return'var(--green)';
   }
   function psiVal(tire){return tire?tire.value+'':'--'}
-  // Window: 2=closed, 1=open, 0/null=unknown
   function winColor(v){return v===2?'var(--green)':v===1?'var(--yellow)':'var(--muted)'}
-  function winStatus(v){return v===2?'Closed':v===1?'Open':'—'}
+  function winLabel(v){return v===2?'Closed':v===1?'Open':'—'}
 
-  const tires=[
-    {tire:fl,x:14,y:42,lx:-2,ly:78,label:'FL'},
-    {tire:fr,x:148,y:42,lx:148,ly:78,label:'FR'},
-    {tire:rl,x:14,y:162,lx:-2,ly:198,label:'RL'},
-    {tire:rr,x:148,y:162,lx:148,ly:198,label:'RR'},
-  ];
-
-  let tireSvg='';
-  for(const t of tires){
-    tireSvg+=`<rect x="${t.x}" y="${t.y}" width="18" height="36" rx="5" fill="${tireColor(t.tire)}" stroke="var(--border)" stroke-width="1.5" opacity="0.8"/>`;
-  }
-
-  // Window indicators inside the car body glass areas
-  const dw=tel.driverWindow, pw=tel.passengerWindow, rdw=tel.rlWindow, rpw=tel.rrWindow, sr=tel.sunRoof;
-  const hasWindows=(dw!=null||pw!=null||rdw!=null||rpw!=null);
-  let winSvg='';
-  if(hasWindows){
-    // Front windshield area split into driver/passenger halves
-    winSvg+=`<rect x="42" y="47" width="48" height="51" rx="6" fill="${winColor(dw)}" opacity="0.2"/>`;
-    winSvg+=`<rect x="92" y="47" width="46" height="51" rx="6" fill="${winColor(pw)}" opacity="0.2"/>`;
-    // Rear window area split into driver/passenger halves
-    winSvg+=`<rect x="42" y="142" width="48" height="41" rx="6" fill="${winColor(rdw)}" opacity="0.2"/>`;
-    winSvg+=`<rect x="92" y="142" width="46" height="41" rx="6" fill="${winColor(rpw)}" opacity="0.2"/>`;
-    // Small window icons in each quadrant
-    const wIco=(x,y,v)=>{
-      const c=v===2?'var(--green)':v===1?'var(--yellow)':'var(--muted)';
-      const icon=v===2
-        ?`<rect x="${x}" y="${y}" width="12" height="9" rx="2" fill="none" stroke="${c}" stroke-width="1.5"/>`
-        :`<g><rect x="${x}" y="${y}" width="12" height="9" rx="2" fill="none" stroke="${c}" stroke-width="1.5"/><line x1="${x+3}" y1="${y-2}" x2="${x+3}" y2="${y+3}" stroke="${c}" stroke-width="1.5"/><path d="M${x+1} ${y+1} L${x+5} ${y-3}" stroke="${c}" stroke-width="1" opacity="0.7"/></g>`;
-      return icon;
-    };
-    winSvg+=wIco(54,66,dw);
-    winSvg+=wIco(104,66,pw);
-    winSvg+=wIco(54,157,rdw);
-    winSvg+=wIco(104,157,rpw);
-    // Sunroof
-    if(sr!=null){
-      winSvg+=`<rect x="72" y="103" width="36" height="14" rx="4" fill="${winColor(sr)}" opacity="0.2" stroke="${winColor(sr)}" stroke-width="1"/>`;
+  // Parse door/hatch/hood from vehicleStatus
+  const doorInfo={};
+  if(status&&status.vehicleStatus){
+    for(const cat of status.vehicleStatus){
+      for(const sec of (cat.sections||[])){
+        const key=`${cat.category} ${sec.section}`;
+        const vals=(sec.values||[]).map(v=>v.value);
+        doorInfo[key]={
+          closed:vals.some(v=>/closed/i.test(v)),
+          open:vals.some(v=>/open/i.test(v)),
+          locked:vals.some(v=>/locked/i.test(v)&&!/unlocked/i.test(v)),
+          unlocked:vals.some(v=>/unlocked/i.test(v)),
+        };
+      }
     }
   }
+  function doorColor(key){const d=doorInfo[key];if(!d)return'var(--muted)';if(d.open||d.unlocked)return'var(--yellow)';return'var(--green)'}
 
-  let h=`<div class="section-title">🛞 Tires & Windows</div>`;
-  h+=`<div style="display:flex;align-items:center;justify-content:center;margin:12px 0">`;
-  h+=`<div style="position:relative;width:180px;height:240px">`;
-  h+=`<svg viewBox="0 0 180 240" width="180" height="240" style="position:absolute;top:0;left:0">
-    <rect x="30" y="30" width="120" height="180" rx="20" fill="var(--surface)" stroke="var(--border)" stroke-width="2"/>
-    <rect x="40" y="45" width="100" height="55" rx="8" fill="none" stroke="var(--border)" stroke-width="1.5" opacity="0.5"/>
-    <rect x="40" y="140" width="100" height="45" rx="8" fill="none" stroke="var(--border)" stroke-width="1.5" opacity="0.5"/>
-    ${tireSvg}
-    ${winSvg}
-    <circle cx="70" cy="82" r="10" fill="none" stroke="var(--border)" stroke-width="1.5" opacity="0.4"/>
-    <path d="M90 15 L85 25 L95 25 Z" fill="var(--muted)" opacity="0.5"/>
-  </svg>`;
-  for(const t of tires){
-    const color=tireColor(t.tire);
-    h+=`<div style="position:absolute;left:${t.lx}px;top:${t.ly}px;width:36px;text-align:center;font-size:13px;font-weight:700;color:${color}">${psiVal(t.tire)}</div>`;
-  }
-  h+=`</div></div>`;
-  h+=`<div style="text-align:center;font-size:11px;color:var(--muted);margin-bottom:8px">Tire pressure in ${fl?.unit||fr?.unit||'psi'}</div>`;
+  // Mini car outline (reusable) — simple rounded rect
+  const carBody=`<rect x="12" y="8" width="56" height="84" rx="12" fill="var(--surface)" stroke="var(--border)" stroke-width="1.5"/>`;
 
-  // Window status rows
-  if(hasWindows){
-    h+=`<div style="font-size:11px;color:var(--muted);margin-top:4px;margin-bottom:4px">Window Status</div>`;
-    const wins=[
-      {label:'Driver Front',v:dw},{label:'Passenger Front',v:pw},
-      {label:'Driver Rear',v:rdw},{label:'Passenger Rear',v:rpw},
+  let h=`<div class="section-title">🚗 Vehicle Status</div>`;
+  h+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:8px 0">`;
+
+  // --- Tires section ---
+  h+=`<div>`;
+  h+=`<div style="font-size:12px;font-weight:600;margin-bottom:6px">🛞 Tires</div>`;
+  h+=`<div style="position:relative;width:80px;height:100px;margin:0 auto 8px">`;
+  h+=`<svg viewBox="0 0 80 100" width="80" height="100">${carBody}`;
+  // Tire rectangles
+  const tData=[{t:fl,x:2,y:16},{t:fr,x:60,y:16},{t:rl,x:2,y:64},{t:rr,x:60,y:64}];
+  for(const td of tData) h+=`<rect x="${td.x}" y="${td.y}" width="10" height="20" rx="3" fill="${tireColor(td.t)}" opacity="0.8"/>`;
+  h+=`</svg>`;
+  // PSI labels
+  const pLbl=[{t:fl,x:-4,y:36},{t:fr,x:58,y:36},{t:rl,x:-4,y:84},{t:rr,x:58,y:84}];
+  for(const p of pLbl) h+=`<div style="position:absolute;left:${p.x}px;top:${p.y}px;width:24px;text-align:center;font-size:10px;font-weight:700;color:${tireColor(p.t)}">${psiVal(p.t)}</div>`;
+  h+=`</div>`;
+  h+=`<div style="text-align:center;font-size:10px;color:var(--muted)">${fl?.unit||'psi'}</div>`;
+  if(tel.tirePressureTimestamp) h+=`<div class="row" style="font-size:11px;margin-top:4px"><span class="k">Updated</span><span>${fmtDate(tel.tirePressureTimestamp)}</span></div>`;
+  h+=`</div>`;
+
+  // --- Doors section ---
+  const hasDoors=Object.keys(doorInfo).some(k=>/Door/i.test(k));
+  h+=`<div>`;
+  h+=`<div style="font-size:12px;font-weight:600;margin-bottom:6px">🚪 Doors</div>`;
+  if(hasDoors){
+    h+=`<div style="width:80px;height:100px;margin:0 auto 8px">`;
+    h+=`<svg viewBox="0 0 80 100" width="80" height="100">${carBody}`;
+    // Door lines on body edges
+    const dLines=[
+      {key:'Driver Side Door',x:12,y1:18,y2:48},
+      {key:'Passenger Side Door',x:68,y1:18,y2:48},
+      {key:'Driver Side Rear Door',x:12,y1:52,y2:78},
+      {key:'Passenger Side Rear Door',x:68,y1:52,y2:78},
     ];
+    for(const dl of dLines){
+      const c=doorColor(dl.key);
+      h+=`<line x1="${dl.x}" y1="${dl.y1}" x2="${dl.x}" y2="${dl.y2}" stroke="${c}" stroke-width="3" stroke-linecap="round"/>`;
+    }
+    h+=`</svg></div>`;
+    const doorRows=[
+      {label:'Driver Front',key:'Driver Side Door'},
+      {label:'Pass. Front',key:'Passenger Side Door'},
+      {label:'Driver Rear',key:'Driver Side Rear Door'},
+      {label:'Pass. Rear',key:'Passenger Side Rear Door'},
+    ];
+    for(const dr of doorRows){
+      const d=doorInfo[dr.key];if(!d)continue;
+      let tags='';
+      if(d.open)tags+=`<span class="tag tag-warn">Open</span> `;
+      else if(d.closed)tags+=`<span class="tag tag-ok">Closed</span> `;
+      if(d.locked)tags+=`<span class="tag tag-ok">🔒</span>`;
+      else if(d.unlocked)tags+=`<span class="tag tag-warn">🔓</span>`;
+      h+=`<div class="row" style="font-size:11px"><span class="k">${dr.label}</span><span>${tags}</span></div>`;
+    }
+  } else {
+    h+=`<div class="meta">No door data</div>`;
+  }
+  h+=`</div>`;
+
+  // --- Windows section ---
+  const dw=tel.driverWindow, pw=tel.passengerWindow, rdw=tel.rlWindow, rpw=tel.rrWindow, sr=tel.sunRoof;
+  const hasWindows=(dw!=null||pw!=null||rdw!=null||rpw!=null);
+  h+=`<div>`;
+  h+=`<div style="font-size:12px;font-weight:600;margin-bottom:6px">🪟 Windows</div>`;
+  if(hasWindows){
+    h+=`<div style="width:80px;height:100px;margin:0 auto 8px">`;
+    h+=`<svg viewBox="0 0 80 100" width="80" height="100">${carBody}`;
+    // Window fills inside car body
+    h+=`<rect x="16" y="14" width="22" height="30" rx="4" fill="${winColor(dw)}" opacity="0.25"/>`;
+    h+=`<rect x="42" y="14" width="22" height="30" rx="4" fill="${winColor(pw)}" opacity="0.25"/>`;
+    h+=`<rect x="16" y="56" width="22" height="24" rx="4" fill="${winColor(rdw)}" opacity="0.25"/>`;
+    h+=`<rect x="42" y="56" width="22" height="24" rx="4" fill="${winColor(rpw)}" opacity="0.25"/>`;
+    if(sr!=null) h+=`<rect x="28" y="46" width="24" height="8" rx="3" fill="${winColor(sr)}" opacity="0.25" stroke="${winColor(sr)}" stroke-width="0.5"/>`;
+    h+=`</svg></div>`;
+    const wins=[{label:'Driver Front',v:dw},{label:'Pass. Front',v:pw},{label:'Driver Rear',v:rdw},{label:'Pass. Rear',v:rpw}];
     if(sr!=null)wins.push({label:'Sunroof',v:sr});
     for(const w of wins){
       const cls=w.v===2?'tag-ok':w.v===1?'tag-warn':'';
-      h+=`<div class="row"><span class="k">${w.label}</span><span class="tag ${cls}">${winStatus(w.v)}</span></div>`;
+      h+=`<div class="row" style="font-size:11px"><span class="k">${w.label}</span><span class="tag ${cls}">${winLabel(w.v)}</span></div>`;
     }
+  } else {
+    h+=`<div class="meta">No window data</div>`;
   }
+  h+=`</div>`;
+
+  // --- Hood & Hatch section ---
+  const hoodInfo=doorInfo['Other Hood'];
+  const hatchKey=doorInfo['Other Hatch']?'Other Hatch':doorInfo['Other Trunk']?'Other Trunk':null;
+  const hatchInfo=hatchKey?doorInfo[hatchKey]:null;
+  h+=`<div>`;
+  h+=`<div style="font-size:12px;font-weight:600;margin-bottom:6px">🏗️ Hood & Hatch</div>`;
+  if(hoodInfo||hatchInfo){
+    h+=`<div style="width:80px;height:100px;margin:0 auto 8px">`;
+    h+=`<svg viewBox="0 0 80 100" width="80" height="100">${carBody}`;
+    // Hood highlight at top
+    if(hoodInfo){
+      const hc=hoodInfo.open?'var(--yellow)':'var(--green)';
+      h+=`<line x1="22" y1="10" x2="58" y2="10" stroke="${hc}" stroke-width="3" stroke-linecap="round"/>`;
+      h+=`<text x="40" y="28" text-anchor="middle" font-size="8" fill="${hc}" font-weight="bold">HOOD</text>`;
+    }
+    // Hatch highlight at bottom
+    if(hatchInfo){
+      const hc=hatchInfo.open||hatchInfo.unlocked?'var(--yellow)':'var(--green)';
+      h+=`<line x1="22" y1="90" x2="58" y2="90" stroke="${hc}" stroke-width="3" stroke-linecap="round"/>`;
+      h+=`<text x="40" y="80" text-anchor="middle" font-size="8" fill="${hc}" font-weight="bold">HATCH</text>`;
+    }
+    h+=`</svg></div>`;
+    if(hoodInfo){
+      let tags='';
+      if(hoodInfo.open)tags=`<span class="tag tag-warn">Open</span>`;
+      else if(hoodInfo.closed)tags=`<span class="tag tag-ok">Closed</span>`;
+      h+=`<div class="row" style="font-size:11px"><span class="k">Hood</span><span>${tags}</span></div>`;
+    }
+    if(hatchInfo){
+      let tags='';
+      if(hatchInfo.open)tags+=`<span class="tag tag-warn">Open</span> `;
+      else if(hatchInfo.closed)tags+=`<span class="tag tag-ok">Closed</span> `;
+      if(hatchInfo.locked)tags+=`<span class="tag tag-ok">🔒</span>`;
+      else if(hatchInfo.unlocked)tags+=`<span class="tag tag-warn">🔓</span>`;
+      h+=`<div class="row" style="font-size:11px"><span class="k">${hatchKey==='Other Trunk'?'Trunk':'Hatch'}</span><span>${tags}</span></div>`;
+    }
+  } else {
+    h+=`<div class="meta">No data</div>`;
+  }
+  h+=`</div>`;
+
+  h+=`</div>`; // close grid
 
   if(tel.nextService?.value!=null){
     h+=`<div class="row" style="margin-top:8px"><span class="k">Next Service</span><span>${tel.nextService.value.toLocaleString(LC)} ${normUnit(tel.nextService.unit)||distLabel()}</span></div>`;
-  }
-  if(tel.tirePressureTimestamp){
-    h+=`<div class="row"><span class="k">Last TPMS Update</span><span>${fmtDate(tel.tirePressureTimestamp)}</span></div>`;
   }
   el.innerHTML=h;
 }
