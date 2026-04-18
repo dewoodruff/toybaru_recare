@@ -116,6 +116,19 @@ body.dark.subaru .topbar .lang-select,body.dark.subaru .topbar .sync-select{back
   iframe{height:180px!important}
   .topbar h1{font-size:14px}
 }
+/* Density mode */
+body.dense .card{padding:12px;border-radius:10px}
+body.dense .row{padding:3px 0;font-size:12px}
+body.dense .section-title{font-size:11px;margin-bottom:6px}
+body.dense .stat-num{font-size:20px}
+body.dense .bat-pct{font-size:28px}
+body.dense .grid2{gap:10px}
+body.dense .page{gap:10px!important;padding:12px}
+body.dense .vehicle-hero{padding:10px;gap:12px}
+body.dense .vehicle-hero img{max-width:140px;max-height:100px}
+body.dense .vehicle-hero-name{font-size:16px}
+body.dense .btn{padding:3px 10px;font-size:12px}
+body.dense .meta{font-size:11px}
 </style>
 </head>
 <body class="toyota">
@@ -163,6 +176,7 @@ body.dark.subaru .topbar .lang-select,body.dark.subaru .topbar .sync-select{back
     <option value="60">Auto: 60 min</option>
   </select>
   <button onclick="toggleTheme()" id="themeBtn" class="theme-toggle" title="Toggle dark/light mode">&#x1F319;</button>
+  <button onclick="toggleDensity()" id="densityBtn" class="theme-toggle" title="Toggle comfort/dense mode">⊞</button>
   <button class="btn btn-sm" onclick="doLogout()" id="logoutBtn"></button>
 </div>
 <div class="tabs" id="tabBar"></div>
@@ -170,13 +184,13 @@ body.dark.subaru .topbar .lang-select,body.dark.subaru .topbar .sync-select{back
 <div class="page active" id="page-vehicle" style="display:flex;flex-direction:column;gap:16px">
   <div class="card" id="vehicleHeroCard" style="display:none;margin:0"></div>
   <div class="grid2">
+    <div class="card" id="batteryCard" style="margin:0"></div>
     <div class="card" id="statusCard"></div>
     <div class="card" id="tireCard"></div>
     <div class="card" id="locationCard"></div>
-    <div class="card" id="efficiencyCard"></div>
     <div class="card" id="remoteCard"></div>
+    <div class="card" id="efficiencyCard"></div>
   </div>
-  <div class="card" id="batteryCard" style="margin:0"></div>
   <div class="card" id="lastTripCard" style="margin:0"></div>
   <div style="text-align:right"><button class="btn" onclick="loadOverview()" id="refreshOverviewBtn"></button></div>
 </div>
@@ -316,6 +330,13 @@ function toggleTheme() {
   document.getElementById('themeBtn').textContent = isDark ? '\u2600\uFE0F' : '\uD83C\uDF19';
 }
 
+function toggleDensity() {
+  const isDense = document.body.classList.toggle('dense');
+  localStorage.setItem('toybaru_density', isDense ? 'dense' : 'comfort');
+  document.getElementById('densityBtn').textContent = isDense ? '⊟' : '⊞';
+  document.getElementById('densityBtn').title = isDense ? 'Switch to comfort mode' : 'Switch to dense mode';
+}
+
 function initTheme() {
   const saved = localStorage.getItem('toybaru_theme') || 'light';
   if (saved === 'dark') {
@@ -324,6 +345,13 @@ function initTheme() {
   } else {
     document.body.classList.remove('dark');
     document.getElementById('themeBtn').textContent = '\uD83C\uDF19';
+  }
+  // Density
+  const density = localStorage.getItem('toybaru_density') || 'comfort';
+  if (density === 'dense') {
+    document.body.classList.add('dense');
+    document.getElementById('densityBtn').textContent = '⊟';
+    document.getElementById('densityBtn').title = 'Switch to comfort mode';
   }
 }
 
@@ -587,7 +615,7 @@ async function loadOverview() {
   if (allData.brand) {
     applyBrand(allData.brand);
   }
-  renderVehicleHero(allData.vehicle, allData.battery?.solar);
+  renderVehicleHero(allData.vehicle, allData.battery?.solar, allData.battery, allData.status);
   renderBattery(allData.battery, allData);
   renderStatus(allData.status, allData.telemetry);
   renderTirePressure(allData.telemetry, allData.status);
@@ -600,7 +628,7 @@ async function loadOverview() {
 
 function _escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 
-function renderVehicleHero(v, solar) {
+function renderVehicleHero(v, solar, bat, status) {
   const el = document.getElementById('vehicleHeroCard');
   if (!v || (!v.image && !v.nickname && !v.model_name)) { el.style.display = 'none'; return; }
   el.style.display = '';
@@ -618,6 +646,29 @@ function renderVehicleHero(v, solar) {
     `<span class="cap-badge" ${c._style ? 'style="'+_escAttr(c._style)+'"' : ''}>${_escHtml(c.label)}</span>`).join('')}</div>` : '';
   // Validate image URL (only allow https:)
   const imgUrl = v.image && /^https:\/\//i.test(v.image) ? _escAttr(v.image) : '';
+
+  // Key metrics strip
+  const pct = bat?.batteryLevel;
+  const range = bat?.evRange?.value;
+  const unit = bat?.evRange?.unit || 'km';
+  const cs = bat?.chargingStatus;
+  const warnings = status?.cautionOverallCount || 0;
+  const batColor = pct>20?'var(--green)':pct>=10?'var(--yellow)':'var(--red)';
+  let metricsHtml = '';
+  if (pct != null || warnings > 0) {
+    metricsHtml = `<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">`;
+    if (pct != null) {
+      metricsHtml += `<div style="display:flex;align-items:center;gap:8px"><span style="font-size:24px;font-weight:700;color:${batColor}">${pct}%</span>`;
+      if (range != null) metricsHtml += `<span class="meta">${Math.round(range)} ${unit}</span>`;
+      if (cs === 'charging') metricsHtml += `<span class="tag tag-ok" style="font-size:10px">⚡ Charging</span>`;
+      metricsHtml += `</div>`;
+    }
+    if (warnings > 0) {
+      metricsHtml += `<div style="display:flex;align-items:center;gap:6px"><span class="tag tag-warn">⚠ ${warnings} warning${warnings!==1?'s':''}</span></div>`;
+    }
+    metricsHtml += `</div>`;
+  }
+
   el.innerHTML = `<div class="vehicle-hero">
     ${imgUrl ? `<img src="${imgUrl}" alt="${name}">` : ''}
     <div class="vehicle-hero-info">
@@ -630,6 +681,7 @@ function renderVehicleHero(v, solar) {
         v.first_use_date ? 'First use ' + new Date(v.first_use_date+'T00:00:00').toLocaleDateString(LC, {year:'numeric',month:'short',day:'numeric'}) : ''
       }</div>` : ''}
       ${capsHtml}
+      ${metricsHtml}
     </div>
   </div>
   ${v.subscriptions?.length ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
