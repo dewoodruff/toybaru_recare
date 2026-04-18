@@ -845,7 +845,28 @@ async function renderBatteryHistory() {
       <span style="margin-left:auto">${data.length} snapshots</span>
     </div>`;
 
-    el.innerHTML = `<div class="section-title">Battery Health</div>${svgHtml}${legend}`;
+    // Charge cycle stats from battery data
+    const bat = allData?.battery || {};
+    const cycles = bat.plugInHistory;
+    const firstUse = allData?.vehicle?.first_use_date;
+    let cycleStats = '';
+    if (cycles != null) {
+      let cyclesPerMonth = '';
+      if (firstUse) {
+        const days = (Date.now() - new Date(firstUse+'T00:00:00').getTime()) / 86400000;
+        if (days > 0) {
+          const cpm = (cycles / days * 30.44).toFixed(1);
+          cyclesPerMonth = ` (~${cpm}/month)`;
+        }
+      }
+      cycleStats = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+        <div class="row"><span class="k">Lifetime Charge Sessions</span><span>${cycles}${cyclesPerMonth}</span></div>
+        <div class="row"><span class="k">Est. Energy Throughput</span><span>~${(cycles * 0.5 * 71.4).toFixed(0)} kWh</span></div>
+        <div class="meta" style="margin-top:4px">Based on ${cycles} plug-ins, avg 50% charge depth, 71.4 kWh battery</div>
+      </div>`;
+    }
+
+    el.innerHTML = `<div class="section-title">Battery Health</div>${svgHtml}${legend}${cycleStats}`;
   } catch (e) {
     el.innerHTML = `<div class="section-title">Battery Health</div><div class="meta">Error: ${e.message}</div>`;
   }

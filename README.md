@@ -40,12 +40,26 @@ So I built a dashboard around it. Import your trips, store them locally (so Suba
 **Vehicle Overview**
 - Battery state of charge, range (with and without climate), charging status
 - Battery bar color-coded for EV-optimal range: green (10-80%), yellow (>80%, wear risk), red (<10%, low)
+- Charger level detection (Level 1 / Level 2 / DC Fast L3) with kW rate, estimated full time, and raw chargeType code
+- Vehicle hero card with official Toyota/Subaru render image, color, nickname, and model info
+- Manufactured date and first-use date
+- Vehicle capabilities shown as badges (Digital Key, Solar Panel, Apple CarPlay, Android Auto, etc.)
+- Active subscription tracker with color-coded expiry dates (green >1yr, yellow <1yr, red <90 days)
+- HVAC climate preset settings displayed in Remote Controls (temperature, blower, defoggers)
 - Door/window/hatch lock status with open/closed indicators
 - Last known GPS position on a map
 - Remote controls: lock/unlock doors, lock/unlock hatch, headlights on/off, hazard lights on/off, sound horn, buzzer warning, engine start/stop, find vehicle
 - Automatic unit detection (miles/km) based on your region
 - Date/time format adapts to region (MM/DD/YYYY 12h AM/PM for NA, DD/MM/YYYY 24h for EU)
 - Last trip summary with key metrics (EU only -- see note below)
+
+**Battery Health**
+- Battery health graph tracking SOC % and estimated range over time
+- Charging session indicators on the graph (green dots when plugged in)
+- Lifetime charge session counter from Toyota's plugInHistory field
+- Estimated energy throughput calculation (based on charge cycles and battery capacity)
+- Charge frequency tracking (sessions per month since first use)
+- All data logged locally via snapshot tracker for long-term degradation analysis
 
 **OTP / Two-Factor Authentication**
 - Full support for Toyota NA's ForgeRock OTP flow
@@ -108,6 +122,11 @@ So I built a dashboard around it. Import your trips, store them locally (so Suba
 - Full Toyota North America API integration alongside existing Subaru EU
 - Automatic endpoint and header adaptation per region
 - Battery data normalization (NA format → standard format)
+- plugStatus mapping (including codes 4, 12, 40, 45) with connectorStatus fallback
+- HVAC climate settings extracted from electric status endpoint
+- Vehicle info: image, color, nickname, capabilities, subscriptions, manufactured/first-use dates
+- Solar panel status detection (equipped vs N/A)
+- Charge cycle tracking via plugInHistory counter
 - Trips, Statistics, and Data tabs automatically hidden for NA users (Toyota NA does not provide trip or charging history data)
 - Unit display adapts to region (miles for NA, km for EU)
 
@@ -230,7 +249,7 @@ After the initial import, use the **Fetch new trips** button on the Trips tab to
 
 ## Important notes
 
-- **Tested on a 2023 Subaru Solterra (EU/Germany) and a Toyota bZ4X (NA/US).** Other regions may work but are untested. Feedback welcome.
+- **Tested on a 2023 Subaru Solterra (EU/Germany) and a 2026 Toyota bZ4X XLE FWD PLUS (NA/US).** Other regions may work but are untested. Feedback welcome.
 - **Toyota NA uses OTP via email for authentication.** The codes arrive from `donotreply@toyotaconnectedservices.com` (Toyota) or `noreply@subaruconnectedservices.io` (Subaru) and may land in your spam folder.
 - **Toyota NA does not provide trip or charging history data.** Neither trip logs nor charging session history are available through Toyota's North America API. The Trips, Statistics, and Data tabs are automatically hidden for NA users. Only vehicle status, battery, location, and remote controls are available.
 - **Subaru deletes trip data after approximately 12 months.** This is why local storage matters. Import your data regularly.
@@ -273,4 +292,6 @@ This project was built with assistance from AI. All code was reviewed by the aut
 - [ha-toyota-na](https://github.com/widewing/ha-toyota-na) -- Home Assistant integration for Toyota NA that provided the correct API gateway URL, API key, and endpoint paths for the North America region
 - [toyota-na](https://pypi.org/project/toyota-na/) -- Python package for Toyota NA that confirmed remote command payloads, vehicle telemetry endpoints, and the GENERATION header format
 - [SolterraWidget](https://github.com/RossGGG/SolterraWidget) -- Scriptable iOS widget for Solterra that helped verify North America API endpoints and authentication flow
+- [myToyota](https://github.com/Noyax-37/myToyota) -- PHP implementation of Toyota EU API that documented climate control endpoints (climate-settings, climate-control, ac-reservation)
+- [tojota](https://github.com/calmjm/tojota) -- Python Toyota MyT API tool whose example data helped decode plugInHistory and plugStatus codes
 - OpenStreetMap contributors -- Map tiles

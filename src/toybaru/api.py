@@ -242,6 +242,7 @@ class Api:
             "plugStatus": plug,
             "chargeType": charge_info.get("chargeType"),
             "connectorStatus": connector,
+            "plugInHistory": charge_info.get("plugInHistory"),
         }
 
         if remaining is not None and remaining != 65535:
