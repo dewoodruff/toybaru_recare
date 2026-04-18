@@ -150,14 +150,13 @@ body.dark.subaru .topbar .lang-select,body.dark.subaru .topbar .sync-select{back
 <div class="page active" id="page-vehicle">
   <div class="card" id="vehicleHeroCard" style="display:none"></div>
   <div class="grid2">
-    <div class="card" id="batteryCard"></div>
     <div class="card" id="statusCard"></div>
     <div class="card" id="tireCard"></div>
     <div class="card" id="locationCard"></div>
     <div class="card" id="efficiencyCard"></div>
     <div class="card" id="remoteCard"></div>
   </div>
-  <div class="card" id="batteryHistoryCard" style="margin-top:12px"></div>
+  <div class="card" id="batteryCard" style="margin-top:12px"></div>
   <div class="card" id="lastTripCard" style="margin-top:12px"></div>
   <div style="margin-top:8px;text-align:right"><button class="btn" onclick="loadOverview()" id="refreshOverviewBtn"></button></div>
 </div>
@@ -568,14 +567,13 @@ async function loadOverview() {
     applyBrand(allData.brand);
   }
   renderVehicleHero(allData.vehicle, allData.battery?.solar);
-  renderBattery(allData.battery);
+  renderBattery(allData.battery, allData);
   renderStatus(allData.status);
   renderTirePressure(allData.telemetry);
   renderLocation(allData.location);
   renderEfficiency(allData);
   renderRemote(allData.vehicle?.remote_capabilities, allData.climate_settings);
   renderLastTrip();
-  renderBatteryHistory();
   document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString(LC);
 }
 
@@ -634,31 +632,128 @@ function renderVehicleHero(v, solar) {
   </div>` : ''}`;
 }
 
-function renderBattery(d) {
+function renderBattery(d, allCtx) {
   const el = document.getElementById('batteryCard');
   if(!d||d.error){el.innerHTML=`<div class="section-title">${t('battery.title')}</div><div class="error" id="batErr"></div>`;document.getElementById('batErr').textContent=d?.error||'N/A';return}
   const pct=d.batteryLevel,range=d.evRange?.value,rangeAc=d.evRangeWithAc?.value,unit=d.evRange?.unit||'km';
   const cs=d.chargingStatus||'?',csMap={none:t('battery.not_charging'),charging:t('battery.charging'),connected:t('battery.connected')};
   const color=pct>80?'var(--yellow)':pct>=10?'var(--green)':'var(--red)';
-  el.innerHTML=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center">${t('battery.title')} <button class="btn btn-sm" onclick="refreshBattery()" id="batRefreshBtn">${t('battery.refresh_btn')}</button></div>
-    <div class="bat-pct" style="color:${color}">${pct!=null?pct+'%':'?'}</div>
-    <div class="bat-bar"><div class="bat-fill" style="width:${pct||0}%;background:${color}"></div></div>
-    <div class="row"><span class="k">${t('battery.range')}</span><span>${range!=null?Math.round(range)+' '+unit:'?'}</span></div>
-    <div class="row"><span class="k">${t('battery.range_ac')}</span><span>${rangeAc!=null?Math.round(rangeAc)+' '+unit:'?'}</span></div>
-    <div class="row"><span class="k">${t('battery.status')}</span><span>${csMap[cs]||cs}</span></div>
-    ${cs==='charging'&&d.remainingChargeTime?(()=>{
-      const kw=((100-(pct||0))/100*71.4/(d.remainingChargeTime/60));
-      const lvl=kw>=20?'DC Fast (L3)':kw>=2?'Level 2':'Level 1';
-      const lvlColor=kw>=20?'var(--green)':kw>=2?'var(--accent)':'var(--yellow)';
-      const ct = d.chargeType != null ? ` (type ${d.chargeType})` : '';
-      return `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
-      <div class="row"><span class="k">${t('battery.full_in')}</span><span>${Math.floor(d.remainingChargeTime/60)}h ${d.remainingChargeTime%60}min</span></div>
-      <div class="row"><span class="k">${t('battery.full_at')}</span><span>${new Date(Date.now()+d.remainingChargeTime*60000).toLocaleTimeString(LC,{hour:'2-digit',minute:'2-digit'})}</span></div>
-      <div class="row"><span class="k">${t('battery.charge_rate')}</span><span>${kw.toFixed(1)} kW</span></div>
-      <div class="row"><span class="k">Charger</span><span style="color:${lvlColor};font-weight:600">${lvl}${ct}</span></div>
-    </div>`;})():''}
-    ${d.lastUpdateTimestamp?`<div class="row"><span class="k">${t('battery.last_update')}</span><span>${fmtDate(d.lastUpdateTimestamp)}</span></div>`:''}
-    <div class="meta" id="batRefreshStatus"></div>`;
+
+  // Current status section
+  let html=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center">${t('battery.title')} <button class="btn btn-sm" onclick="refreshBattery()" id="batRefreshBtn">${t('battery.refresh_btn')}</button></div>`;
+  html+=`<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">`;
+  // Left: big percentage + bar
+  html+=`<div style="flex:0 0 auto">`;
+  html+=`<div class="bat-pct" style="color:${color}">${pct!=null?pct+'%':'?'}</div>`;
+  html+=`<div class="bat-bar"><div class="bat-fill" style="width:${pct||0}%;background:${color}"></div></div>`;
+  html+=`</div>`;
+  // Right: details
+  html+=`<div style="flex:1;min-width:200px">`;
+  html+=`<div class="row"><span class="k">${t('battery.range')}</span><span>${range!=null?Math.round(range)+' '+unit:'?'}</span></div>`;
+  html+=`<div class="row"><span class="k">${t('battery.range_ac')}</span><span>${rangeAc!=null?Math.round(rangeAc)+' '+unit:'?'}</span></div>`;
+  html+=`<div class="row"><span class="k">${t('battery.status')}</span><span>${csMap[cs]||cs}</span></div>`;
+  if(cs==='charging'&&d.remainingChargeTime){
+    const kw=((100-(pct||0))/100*71.4/(d.remainingChargeTime/60));
+    const lvl=kw>=20?'DC Fast (L3)':kw>=2?'Level 2':'Level 1';
+    const lvlColor=kw>=20?'var(--green)':kw>=2?'var(--accent)':'var(--yellow)';
+    const ct=d.chargeType!=null?` (type ${d.chargeType})`:'';
+    html+=`<div class="row"><span class="k">${t('battery.full_in')}</span><span>${Math.floor(d.remainingChargeTime/60)}h ${d.remainingChargeTime%60}min</span></div>`;
+    html+=`<div class="row"><span class="k">${t('battery.full_at')}</span><span>${new Date(Date.now()+d.remainingChargeTime*60000).toLocaleTimeString(LC,{hour:'2-digit',minute:'2-digit'})}</span></div>`;
+    html+=`<div class="row"><span class="k">${t('battery.charge_rate')}</span><span>${kw.toFixed(1)} kW</span></div>`;
+    html+=`<div class="row"><span class="k">Charger</span><span style="color:${lvlColor};font-weight:600">${lvl}${ct}</span></div>`;
+  }
+  if(d.lastUpdateTimestamp)html+=`<div class="row"><span class="k">${t('battery.last_update')}</span><span>${fmtDate(d.lastUpdateTimestamp)}</span></div>`;
+  html+=`</div></div>`;
+
+  // Charge cycle stats
+  const cycles=d.plugInHistory;
+  const firstUse=allCtx?.vehicle?.first_use_date;
+  if(cycles!=null){
+    let cyclesPerMonth='';
+    if(firstUse){
+      const days=(Date.now()-new Date(firstUse+'T00:00:00').getTime())/86400000;
+      if(days>0)cyclesPerMonth=` (~${(cycles/days*30.44).toFixed(1)}/month)`;
+    }
+    html+=`<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">`;
+    html+=`<div class="row"><span class="k">Lifetime Charge Sessions</span><span>${cycles}${cyclesPerMonth}</span></div>`;
+    html+=`<div class="row"><span class="k">Est. Energy Throughput</span><span>~${(cycles*0.5*71.4).toFixed(0)} kWh</span></div>`;
+    html+=`<div class="meta" style="margin-top:4px">Based on ${cycles} plug-ins, avg 50% charge depth, 71.4 kWh battery</div>`;
+    html+=`</div>`;
+  }
+
+  // History chart placeholder
+  html+=`<div id="batHistoryArea" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"><div class="meta">Loading history...</div></div>`;
+  html+=`<div class="meta" id="batRefreshStatus"></div>`;
+  el.innerHTML=html;
+
+  // Load history chart async
+  _loadBatteryHistoryChart();
+}
+
+async function _loadBatteryHistoryChart() {
+  const el=document.getElementById('batHistoryArea');
+  if(!el)return;
+  try {
+    const data = await (await fetch('/api/battery-history')).json();
+    if (!data.length) { el.innerHTML = `<div class="meta">No history yet — data appears as the dashboard collects readings over time.</div>`; return; }
+    const W = 700, H = 200, pad = {t:20, r:20, b:40, l:50};
+    const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
+    const times = data.map(d => new Date(d.timestamp).getTime());
+    const tMin = Math.min(...times), tMax = Math.max(...times);
+    const tSpan = tMax - tMin || 1;
+    const xf = t => pad.l + ((t - tMin) / tSpan) * pw;
+    const yf = v => pad.t + (1 - v / 100) * ph;
+
+    let socPath = '';
+    data.forEach((d, i) => { const px=xf(times[i]),py=yf(d.soc); socPath+=(i===0?'M':'L')+px.toFixed(1)+','+py.toFixed(1); });
+
+    const ranges = data.filter(d => d.range_km != null);
+    let rangePath = '', maxRange = 0;
+    if (ranges.length > 1) {
+      maxRange = Math.max(...ranges.map(d => d.range_km));
+      ranges.forEach((d, i) => {
+        const px = xf(new Date(d.timestamp).getTime());
+        const py = pad.t + (1 - d.range_km / maxRange) * ph;
+        rangePath += (i === 0 ? 'M' : 'L') + px.toFixed(1) + ',' + py.toFixed(1);
+      });
+    }
+
+    let grid = '';
+    for (const pct of [0, 25, 50, 75, 100]) {
+      const gy = yf(pct);
+      grid += `<line x1="${pad.l}" y1="${gy}" x2="${W-pad.r}" y2="${gy}" stroke="var(--border)" stroke-dasharray="3,3"/>`;
+      grid += `<text x="${pad.l-6}" y="${gy+4}" text-anchor="end" font-size="10" fill="var(--muted)">${pct}%</text>`;
+    }
+    const labelCount = Math.min(5, data.length);
+    let timeLabels = '';
+    for (let i = 0; i < labelCount; i++) {
+      const idx = Math.floor(i * (data.length - 1) / (labelCount - 1));
+      const tx = xf(times[idx]);
+      const dt = new Date(times[idx]);
+      timeLabels += `<text x="${tx}" y="${H-5}" text-anchor="middle" font-size="10" fill="var(--muted)">${dt.toLocaleDateString(LC,{month:'short',day:'numeric'})}</text>`;
+    }
+    let chargeDots = '';
+    data.forEach((d, i) => {
+      if (d.charging_status === 'charging') chargeDots += `<circle cx="${xf(times[i])}" cy="${yf(d.soc)}" r="3" fill="var(--green)" opacity="0.6"/>`;
+    });
+
+    const svgHtml = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-height:230px">
+      ${grid}${timeLabels}
+      <path d="${socPath}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+      ${rangePath ? `<path d="${rangePath}" fill="none" stroke="var(--blue)" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.7"/>` : ''}
+      ${chargeDots}
+    </svg>`;
+    const legend = `<div style="display:flex;gap:16px;font-size:11px;color:var(--muted);margin-top:4px;flex-wrap:wrap">
+      <span><span style="display:inline-block;width:12px;height:3px;background:var(--accent);vertical-align:middle;margin-right:4px"></span>SOC %</span>
+      ${rangePath ? `<span><span style="display:inline-block;width:12px;height:3px;background:var(--blue);vertical-align:middle;margin-right:4px;border-top:1px dashed var(--blue)"></span>Range (max ${Math.round(maxRange)} mi)</span>` : ''}
+      <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);vertical-align:middle;margin-right:4px;opacity:0.6"></span>Charging</span>
+      <span style="margin-left:auto">${data.length} snapshots</span>
+    </div>`;
+
+    el.innerHTML = `<div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px">History</div>${svgHtml}${legend}`;
+  } catch (e) {
+    el.innerHTML = `<div class="meta">History unavailable: ${e.message}</div>`;
+  }
 }
 
 async function refreshBattery() {
@@ -666,7 +761,7 @@ async function refreshBattery() {
   const btn=document.getElementById('batRefreshBtn');const st=document.getElementById('batRefreshStatus');
   btn.disabled=true;btn.style.opacity='.6';btn.textContent='...';
   try{await fetch(`/api/refresh/${currentVin}`,{method:'POST',headers:_postHeaders()});st.textContent=t('battery.refresh_sent');
-    btn.textContent=t('battery.refresh_loading');const c=await(await fetch(`/api/battery/${currentVin}`)).json();if(c&&!c.error)renderBattery(c);
+    btn.textContent=t('battery.refresh_loading');const c=await(await fetch(`/api/battery/${currentVin}`)).json();if(c&&!c.error)renderBattery(c,allData);
   }catch(e){st.textContent=t('app.error')+': '+e.message}
   btn.disabled=false;btn.textContent=t('battery.refresh_btn');btn.style.opacity='1';
 }
@@ -947,106 +1042,6 @@ async function sendCommand(cmd) {
     if(r.error)st.textContent=t('app.error')+': '+r.error;
     else st.textContent=t('remote.sent');
   }catch(e){st.textContent=t('app.error')+': '+e.message}
-}
-
-async function renderBatteryHistory() {
-  const el = document.getElementById('batteryHistoryCard');
-  el.innerHTML = `<div class="section-title">Battery Health</div><div class="meta">Loading...</div>`;
-  try {
-    const data = await (await fetch('/api/battery-history')).json();
-    if (!data.length) { el.innerHTML = `<div class="section-title">Battery Health</div><div class="meta">No snapshots yet. Data will appear as the dashboard collects battery readings over time.</div>`; return; }
-    const W = 700, H = 220, pad = {t:20, r:20, b:40, l:50};
-    const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
-    const times = data.map(d => new Date(d.timestamp).getTime());
-    const tMin = Math.min(...times), tMax = Math.max(...times);
-    const tSpan = tMax - tMin || 1;
-    const x = t => pad.l + ((t - tMin) / tSpan) * pw;
-    const y = v => pad.t + (1 - v / 100) * ph;
-
-    // SOC line
-    let socPath = '';
-    data.forEach((d, i) => {
-      const px = x(times[i]), py = y(d.soc);
-      socPath += (i === 0 ? 'M' : 'L') + px.toFixed(1) + ',' + py.toFixed(1);
-    });
-
-    // Range line (normalize to %)
-    const ranges = data.filter(d => d.range_km != null);
-    let rangePath = '', maxRange = 0;
-    if (ranges.length > 1) {
-      maxRange = Math.max(...ranges.map(d => d.range_km));
-      ranges.forEach((d, i) => {
-        const px = x(new Date(d.timestamp).getTime());
-        const py = pad.t + (1 - d.range_km / maxRange) * ph;
-        rangePath += (i === 0 ? 'M' : 'L') + px.toFixed(1) + ',' + py.toFixed(1);
-      });
-    }
-
-    // Grid lines
-    let grid = '';
-    for (const pct of [0, 25, 50, 75, 100]) {
-      const gy = y(pct);
-      grid += `<line x1="${pad.l}" y1="${gy}" x2="${W-pad.r}" y2="${gy}" stroke="var(--border)" stroke-dasharray="3,3"/>`;
-      grid += `<text x="${pad.l-6}" y="${gy+4}" text-anchor="end" font-size="10" fill="var(--muted)">${pct}%</text>`;
-    }
-
-    // Time labels
-    const labelCount = Math.min(5, data.length);
-    let timeLabels = '';
-    for (let i = 0; i < labelCount; i++) {
-      const idx = Math.floor(i * (data.length - 1) / (labelCount - 1));
-      const tx = x(times[idx]);
-      const dt = new Date(times[idx]);
-      timeLabels += `<text x="${tx}" y="${H-5}" text-anchor="middle" font-size="10" fill="var(--muted)">${dt.toLocaleDateString(LC,{month:'short',day:'numeric'})}</text>`;
-    }
-
-    // Charging indicators
-    let chargeDots = '';
-    data.forEach((d, i) => {
-      if (d.charging_status === 'charging') {
-        chargeDots += `<circle cx="${x(times[i])}" cy="${y(d.soc)}" r="3" fill="var(--green)" opacity="0.6"/>`;
-      }
-    });
-
-    const svgHtml = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-height:250px">
-      ${grid}${timeLabels}
-      <path d="${socPath}" fill="none" stroke="var(--accent)" stroke-width="2"/>
-      ${rangePath ? `<path d="${rangePath}" fill="none" stroke="var(--blue)" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.7"/>` : ''}
-      ${chargeDots}
-    </svg>`;
-
-    const legend = `<div style="display:flex;gap:16px;font-size:11px;color:var(--muted);margin-top:4px">
-      <span><span style="display:inline-block;width:12px;height:3px;background:var(--accent);vertical-align:middle;margin-right:4px"></span>SOC %</span>
-      ${rangePath ? `<span><span style="display:inline-block;width:12px;height:3px;background:var(--blue);vertical-align:middle;margin-right:4px;border-top:1px dashed var(--blue)"></span>Range (max ${Math.round(maxRange)} mi)</span>` : ''}
-      <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);vertical-align:middle;margin-right:4px;opacity:0.6"></span>Charging</span>
-      <span style="margin-left:auto">${data.length} snapshots</span>
-    </div>`;
-
-    // Charge cycle stats from battery data
-    const bat = allData?.battery || {};
-    const cycles = bat.plugInHistory;
-    const firstUse = allData?.vehicle?.first_use_date;
-    let cycleStats = '';
-    if (cycles != null) {
-      let cyclesPerMonth = '';
-      if (firstUse) {
-        const days = (Date.now() - new Date(firstUse+'T00:00:00').getTime()) / 86400000;
-        if (days > 0) {
-          const cpm = (cycles / days * 30.44).toFixed(1);
-          cyclesPerMonth = ` (~${cpm}/month)`;
-        }
-      }
-      cycleStats = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
-        <div class="row"><span class="k">Lifetime Charge Sessions</span><span>${cycles}${cyclesPerMonth}</span></div>
-        <div class="row"><span class="k">Est. Energy Throughput</span><span>~${(cycles * 0.5 * 71.4).toFixed(0)} kWh</span></div>
-        <div class="meta" style="margin-top:4px">Based on ${cycles} plug-ins, avg 50% charge depth, 71.4 kWh battery</div>
-      </div>`;
-    }
-
-    el.innerHTML = `<div class="section-title">Battery Health</div>${svgHtml}${legend}${cycleStats}`;
-  } catch (e) {
-    el.innerHTML = `<div class="section-title">Battery Health</div><div class="meta">Error: ${e.message}</div>`;
-  }
 }
 
 async function renderLastTrip() {
