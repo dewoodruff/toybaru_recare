@@ -187,7 +187,6 @@ body.dense .meta{font-size:11px}
     <div class="card" id="batteryCard" style="margin:0"></div>
     <div class="card" id="statusCard"></div>
     <div class="card" id="tireCard"></div>
-    <div class="card" id="locationCard"></div>
     <div class="card" id="remoteCard"></div>
     <div class="card" id="efficiencyCard"></div>
   </div>
@@ -617,9 +616,8 @@ async function loadOverview() {
   }
   renderVehicleHero(allData.vehicle, allData.battery?.solar, allData.battery, allData.status);
   renderBattery(allData.battery, allData);
-  renderStatus(allData.status, allData.telemetry);
+  renderStatus(allData.status, allData.telemetry, allData.location);
   renderTirePressure(allData.telemetry, allData.status);
-  renderLocation(allData.location);
   renderEfficiency(allData);
   renderRemote(allData.vehicle?.remote_capabilities, allData.climate_settings);
   renderLastTrip();
@@ -717,7 +715,7 @@ function renderBattery(d, allCtx) {
   const color=pct>20?'var(--green)':pct>=10?'var(--yellow)':'var(--red)';
 
   // Current status section
-  let html=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center">${t('battery.title')} <button class="btn btn-sm" onclick="refreshBattery()" id="batRefreshBtn">${t('battery.refresh_btn')}</button></div>`;
+  let html=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center">${t('battery.title')} <span style="flex:1"></span><span class="meta" id="batRefreshStatus" style="margin-right:8px"></span><button class="btn btn-sm" onclick="refreshBattery()" id="batRefreshBtn">${t('battery.refresh_btn')}</button></div>`;
   html+=`<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">`;
   // Left: big percentage + ring gauge
   html+=`<div style="flex:0 0 auto;text-align:center">`;
@@ -767,8 +765,13 @@ function renderBattery(d, allCtx) {
 
   // History chart placeholder
   html+=`<div id="batHistoryArea" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"><div class="meta">Loading history...</div></div>`;
-  html+=`<div class="meta" id="batRefreshStatus"></div>`;
   el.innerHTML=html;
+
+  // Show last update time next to refresh button
+  if(d.lastUpdateTimestamp){
+    const st=document.getElementById('batRefreshStatus');
+    if(st) st.textContent=`Updated ${new Date(d.lastUpdateTimestamp).toLocaleTimeString(LC,{hour:'2-digit',minute:'2-digit'})}`;
+  }
 
   // Load history chart async
   _loadBatteryHistoryChart();
@@ -844,13 +847,75 @@ async function refreshBattery() {
   if(!currentVin)return;
   const btn=document.getElementById('batRefreshBtn');const st=document.getElementById('batRefreshStatus');
   btn.disabled=true;btn.style.opacity='.6';btn.textContent='...';
-  try{await fetch(`/api/refresh/${currentVin}`,{method:'POST',headers:_postHeaders()});st.textContent=t('battery.refresh_sent');
-    btn.textContent=t('battery.refresh_loading');const c=await(await fetch(`/api/battery/${currentVin}`)).json();if(c&&!c.error)renderBattery(c,allData);
-  }catch(e){st.textContent=t('app.error')+': '+e.message}
-  btn.disabled=false;btn.textContent=t('battery.refresh_btn');btn.style.opacity='1';
+  try{
+    await fetch(`/api/refresh/${currentVin}`,{method:'POST',headers:_postHeaders()});
+    st.textContent='⏳ Waking vehicle...';
+
+    const originalPct = allData?.battery?.batteryLevel;
+    const originalTs = allData?.battery?.lastUpdateTimestamp;
+    let attempts = 0;
+    const maxAttempts = 8;
+    const interval = 10000;
+
+    function showStatus(msg) {
+      const el = document.getElementById('batRefreshStatus');
+      if (el) el.textContent = msg;
+    }
+    function resetBtn() {
+      const b = document.getElementById('batRefreshBtn');
+      if (b) { b.disabled=false; b.textContent=t('battery.refresh_btn'); b.style.opacity='1'; }
+    }
+    function fmtTs(ts) {
+      if (!ts) return '';
+      return new Date(ts).toLocaleTimeString(LC, {hour:'2-digit',minute:'2-digit'});
+    }
+
+    const poll = async () => {
+      attempts++;
+      showStatus(`⏳ Waiting (${attempts}/${maxAttempts})...`);
+      const b = document.getElementById('batRefreshBtn');
+      if (b) b.textContent = `${attempts}/${maxAttempts}`;
+      try {
+        const c = await (await fetch(`/api/battery/${currentVin}`)).json();
+        if (c && !c.error) {
+          const newTs = c.lastUpdateTimestamp;
+          const newPct = c.batteryLevel;
+          if ((newTs && newTs !== originalTs) || (newPct != null && newPct !== originalPct)) {
+            allData.battery = c;
+            renderBattery(c, allData);
+            renderVehicleHero(allData.vehicle, c.solar, c, allData.status);
+            showStatus(`✅ ${newPct}% · Updated ${fmtTs(newTs)}`);
+            resetBtn();
+            return;
+          }
+        }
+      } catch(e) { /* keep trying */ }
+
+      if (attempts < maxAttempts) {
+        setTimeout(poll, interval);
+      } else {
+        showStatus('⏳ Final refresh...');
+        await loadOverview();
+        const finalPct = allData?.battery?.batteryLevel;
+        const finalTs = allData?.battery?.lastUpdateTimestamp;
+        if (finalPct != null && finalPct !== originalPct) {
+          showStatus(`✅ ${finalPct}% · Updated ${fmtTs(finalTs)}`);
+        } else {
+          showStatus(`⚠️ No change yet · Last: ${fmtTs(finalTs || originalTs)}`);
+        }
+        resetBtn();
+      }
+    };
+    setTimeout(poll, interval);
+  }catch(e){
+    const el=document.getElementById('batRefreshStatus');
+    if(el) el.textContent=t('app.error')+': '+e.message;
+    const b=document.getElementById('batRefreshBtn');
+    if(b){b.disabled=false;b.textContent=t('battery.refresh_btn');b.style.opacity='1'}
+  }
 }
 
-function renderStatus(d, tel) {
+function renderStatus(d, tel, locData) {
   const el=document.getElementById('statusCard');
   if(!d||d.error){el.innerHTML=`<div class="section-title">${t('status.title')}</div><div class="error" id="statusErr"></div>`;document.getElementById('statusErr').textContent=d?.error||'N/A';return}
 
@@ -893,7 +958,27 @@ function renderStatus(d, tel) {
     }
   }
   if(d.occurrenceDate)h+=`<div class="row" style="margin-top:8px"><span class="k">${t('status.last_update')}</span><span class="meta">${fmtDate(d.occurrenceDate)}</span></div>`;
-  if(!hasRows&&!odo&&!svc&&cnt===0)h+=`<div class="meta">No additional status data</div>`;
+
+  // Location map
+  const loc=locData&&!locData.error?(locData.vehicleLocation||locData):null;
+  const lat=loc?.latitude,lon=loc?.longitude;
+  const locTs=loc?.locationAcquisitionDatetime||locData?.lastTimestamp;
+  if(lat&&lon){
+    h+=`<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">`;
+    h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:12px;font-weight:600;color:var(--muted)">📍 ${t('location.title')}</span>`;
+    if(locTs){
+      const ago=Math.round((Date.now()-new Date(locTs).getTime())/60000);
+      const agoLabel=ago<1?'just now':ago<60?ago+'m ago':Math.round(ago/60)+'h ago';
+      const stale=ago>60;
+      h+=`<span style="font-size:11px;font-weight:500;padding:2px 8px;border-radius:8px;background:${stale?'color-mix(in srgb,var(--yellow) 12%,var(--bg))':'color-mix(in srgb,var(--green) 10%,var(--bg))'};color:${stale?'var(--yellow)':'var(--green)'}">⏱ ${agoLabel}</span>`;
+    }
+    h+=`</div>`;
+    h+=`<iframe style="width:100%;height:200px;border-radius:10px;border:1px solid var(--border);margin-bottom:6px" loading="lazy" src="https://www.openstreetmap.org/export/embed.html?bbox=${lon-.004},${lat-.002},${lon+.004},${lat+.002}&layer=mapnik&marker=${lat},${lon}"></iframe>`;
+    h+=`<div class="meta" style="text-align:center">${lat.toFixed(5)}, ${lon.toFixed(5)}</div>`;
+    h+=`</div>`;
+  }
+
+  if(!hasRows&&!odo&&!svc&&cnt===0&&!lat)h+=`<div class="meta">No additional status data</div>`;
   el.innerHTML=h;
 }
 
@@ -1078,22 +1163,7 @@ function renderTirePressure(tel, status) {
 }
 
 function renderLocation(d) {
-  const el=document.getElementById('locationCard');
-  if(!d||d.error){el.innerHTML=`<div class="section-title">${t('location.title')}</div><div class="error" id="locErr"></div>`;document.getElementById('locErr').textContent=d?.error||'N/A';return}
-  const loc=d.vehicleLocation||d,lat=loc.latitude,lon=loc.longitude,ts2=loc.locationAcquisitionDatetime||d.lastTimestamp;
-  let h=`<div class="section-title" style="display:flex;justify-content:space-between;align-items:center">${t('location.title')}`;
-  if(ts2){
-    const ago=Math.round((Date.now()-new Date(ts2).getTime())/60000);
-    const agoLabel=ago<1?'just now':ago<60?ago+'m ago':Math.round(ago/60)+'h ago';
-    const stale=ago>60;
-    h+=`<span style="font-size:11px;font-weight:500;padding:2px 8px;border-radius:8px;background:${stale?'color-mix(in srgb,var(--yellow) 12%,var(--bg))':'color-mix(in srgb,var(--green) 10%,var(--bg))'};color:${stale?'var(--yellow)':'var(--green)'}">⏱ ${agoLabel}</span>`;
-  }
-  h+=`</div>`;
-  if(lat&&lon){
-    h+=`<iframe style="width:100%;height:260px;border-radius:10px;border:1px solid var(--border);margin-bottom:8px" loading="lazy" src="https://www.openstreetmap.org/export/embed.html?bbox=${lon-.004},${lat-.002},${lon+.004},${lat+.002}&layer=mapnik&marker=${lat},${lon}"></iframe>`;
-    h+=`<div class="meta" style="text-align:center">${lat.toFixed(5)}, ${lon.toFixed(5)}</div>`;
-  }else h+=`<div class="meta">${t('location.unavailable')}</div>`;
-  el.innerHTML=h;
+  // Location is now rendered inside renderStatus / Overview card
 }
 
 function renderEfficiency(all) {

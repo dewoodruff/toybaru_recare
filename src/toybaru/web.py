@@ -529,7 +529,10 @@ async def api_refresh(vin: str, request: Request, session: str | None = Cookie(N
     vin = _validate_vin(vin)
     _require_csrf(request, session)
     client = await _require_client(session)
-    return await safe_call(client.refresh_status(vin))
+    # Send both general + EV-specific refresh to maximize wake reliability
+    status_result = await safe_call(client.refresh_status(vin))
+    ev_result = await safe_call(client.refresh_electric_status(vin))
+    return {"status_refresh": status_result, "ev_refresh": ev_result}
 
 
 @app.post("/api/command/{vin}/{command}")
