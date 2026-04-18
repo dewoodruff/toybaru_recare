@@ -67,10 +67,18 @@
     "full_in": "Voll in",
     "full_at": "Voll um",
     "charge_rate": "Ladeleistung",
+    "charger": "Ladegeraet",
     "last_update": "Stand",
     "refresh_btn": "Aktualisieren",
     "refresh_sent": "Refresh angefragt. Daten kommen beim naechsten Laden.",
-    "refresh_loading": "Lade Cache..."
+    "refresh_loading": "Lade Cache...",
+    "lifetime_sessions": "Ladevorgaenge gesamt",
+    "est_throughput": "Gesch. Energiedurchsatz",
+    "lifetime_note": "Basierend auf {cycles} Ladevorgaengen, durchschn. 50% Ladetiefe, 71,4 kWh Batterie",
+    "history": "Verlauf",
+    "history_loading": "Verlauf wird geladen...",
+    "history_empty": "Noch kein Verlauf — Daten erscheinen, sobald das Dashboard Messwerte sammelt.",
+    "history_error": "Verlauf nicht verfuegbar"
   },
   "status": {
     "title": "📊 Übersicht",
@@ -92,7 +100,10 @@
     "passenger_window": "Fenster VR",
     "passenger_rear_window": "Fenster HR",
     "rear_hatch": "Heckklappe",
-    "hood": "Motorhaube"
+    "hood": "Motorhaube",
+    "warnings": "Warnungen",
+    "next_service": "Naechster Service",
+    "no_additional": "Keine weiteren Statusdaten"
   },
   "location": {
     "title": "📍 Standort",
@@ -233,6 +244,43 @@
     "group_lights": "Lichter",
     "group_horn": "Hupe",
     "group_engine": "Motor",
-    "group_find": "Suche"
+    "group_find": "Suche",
+    "alerts": "Alarme",
+    "climate_title": "Klimaeinstellungen (bei Fernstart)",
+    "temperature": "Temperatur",
+    "set_temperature": "Solltemperatur",
+    "blower": "Geblaese",
+    "front_defogger": "Frontscheibenheizung",
+    "rear_defogger": "Heckscheibenheizung",
+    "remote_temp_note": "Fernsteuerung der Temperatur wird auf der NA-API noch nicht unterstuetzt",
+    "climate_unavailable": "Fernklimasteuerung derzeit nicht verfuegbar",
+    "on": "An",
+    "off": "Aus",
+    "available": "Verfuegbar",
+    "not_available": "Nicht verfuegbar"
+  },
+  "hero": {
+    "solar_panel": "Solarpanel",
+    "solar_na": "Solarpanel: N/V",
+    "built": "Baujahr",
+    "first_use": "Erstzulassung",
+    "subscriptions": "Abonnements",
+    "vehicle_details": "Fahrzeugdetails",
+    "head_unit": "Infotainment",
+    "platform": "Plattform",
+    "telematics": "Telematikmodul",
+    "katashiki": "Katashiki-Code",
+    "family_sharing": "Familienfreigabe",
+    "enabled": "Aktiviert",
+    "disabled": "Deaktiviert"
+  },
+  "vehicle_status": {
+    "title": "🚗 Fahrzeugstatus",
+    "tires_ok": "Reifen OK",
+    "doors_open": "Tueren offen",
+    "windows_open": "Fenster offen",
+    "no_door_data": "Keine Tuerdaten",
+    "no_window_data": "Keine Fensterdaten",
+    "no_data": "Keine Daten"
   }
 }

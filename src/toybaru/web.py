@@ -91,6 +91,7 @@ _OTP_MAX_AGE = 300  # 5 minutes
 
 _sessions: dict[str, tuple[ToybaruClient, float]] = {}
 _csrf_tokens: dict[str, str] = {}
+_refresh_timestamps: dict[str, float] = {}  # per-VIN rate limiting
 _otp_pending: dict[str, dict] = {}
 
 
@@ -205,7 +206,7 @@ async def api_languages():
     langs = []
     for f in sorted(LOCALES_DIR.glob("*.json")):
         try:
-            data = json.loads(f.read_text())
+            data = json.loads(f.read_text(encoding="utf-8"))
             meta = data.get("_meta", {})
             langs.append({"code": f.stem, "label": meta.get("label", f.stem), "locale": meta.get("locale", f.stem)})
         except Exception:
@@ -215,11 +216,14 @@ async def api_languages():
 
 @app.get("/api/locale/{lang}")
 async def api_locale(lang: str):
-    if not re.match(r'^[a-z]{2}(-[A-Z]{2})?$', lang):
+    if not re.match(r'^[a-z]{2}(-[A-Za-z]{2,4})?$', lang):
         raise HTTPException(status_code=400, detail="Invalid locale")
     path = LOCALES_DIR / f"{lang}.json"
     if not path.exists():
-        path = LOCALES_DIR / "en.json"
+        # Try base language fallback (e.g. fr-CA → fr-FR → fr → en)
+        base = lang.split("-")[0]
+        candidates = sorted(LOCALES_DIR.glob(f"{base}*.json"))
+        path = candidates[0] if candidates else LOCALES_DIR / "en.json"
     return JSONResponse(json.loads(path.read_text(encoding="utf-8")))
 
 
@@ -529,6 +533,13 @@ async def api_refresh(vin: str, request: Request, session: str | None = Cookie(N
     vin = _validate_vin(vin)
     _require_csrf(request, session)
     client = await _require_client(session)
+    # Per-VIN rate limit: max 1 refresh per 60 seconds
+    now = time.monotonic()
+    last = _refresh_timestamps.get(vin, 0)
+    if now - last < 60:
+        remaining = int(60 - (now - last))
+        raise HTTPException(429, f"Rate limited. Try again in {remaining}s.")
+    _refresh_timestamps[vin] = now
     # Send both general + EV-specific refresh to maximize wake reliability
     status_result = await safe_call(client.refresh_status(vin))
     ev_result = await safe_call(client.refresh_electric_status(vin))
