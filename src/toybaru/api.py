@@ -240,6 +240,8 @@ class Api:
             },
             "chargingStatus": charging_status,
             "plugStatus": plug,
+            "chargeType": charge_info.get("chargeType"),
+            "connectorStatus": connector,
         }
 
         if remaining is not None and remaining != 65535:
@@ -248,5 +250,26 @@ class Api:
         acq = data.get("vehicleInfo", {}).get("acquisitionDatetime")
         if acq:
             result["lastUpdateTimestamp"] = acq
+
+        solar = data.get("vehicleInfo", {}).get("solarPowerGenerationInfo", {})
+        if solar:
+            avail = solar.get("solarInfoAvailable", -1)
+            result["solar"] = {
+                "equipped": avail >= 0,
+                "cumulativeDistance": solar.get("solarCumulativeEvTravelableDistance"),
+                "cumulativePower": solar.get("solarCumulativePowerGeneration"),
+            }
+
+        hvac = data.get("vehicleInfo", {}).get("remoteHvacInfo", {})
+        if hvac:
+            result["hvac"] = {
+                "settingTemperature": hvac.get("settingTemperature"),
+                "temperatureLevel": hvac.get("temperaturelevel"),
+                "blowerOn": hvac.get("blowerStatus", 0) != 0,
+                "frontDefogger": hvac.get("frontDefoggerStatus", 0) != 0,
+                "rearDefogger": hvac.get("rearDefoggerStatus", 0) != 0,
+                "hvacMode": hvac.get("remoteHvacMode", 0),
+                "hvacProhibited": hvac.get("remoteHvacProhibitionSignal", 0) == 1,
+            }
 
         return result

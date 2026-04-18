@@ -38,6 +38,12 @@ h1,h2,h3{color:var(--text)}
 .bat-pct{font-size:28px;font-weight:600;line-height:1.2}
 .bat-bar{width:100%;height:6px;background:var(--border);border-radius:3px;margin:6px 0 10px}
 .bat-fill{height:100%;border-radius:3px;transition:width .4s}
+.vehicle-hero{display:flex;align-items:center;gap:20px;padding:16px}
+.vehicle-hero img{max-width:200px;max-height:140px;object-fit:contain;border-radius:8px}
+.vehicle-hero-info{flex:1}
+.vehicle-hero-name{font-size:20px;font-weight:700;color:var(--fg)}
+.vehicle-hero-detail{font-size:13px;color:var(--muted);margin-top:4px}
+.cap-badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:12px;background:var(--accent);color:#fff;font-weight:500;white-space:nowrap}
 .sbar{display:flex;height:6px;border-radius:3px;overflow:hidden}
 .sbar-eco{background:var(--green)}.sbar-reku{background:var(--blue)}.sbar-power{background:var(--red)}
 .sbar-legend{display:flex;gap:12px;font-size:11px;color:var(--muted);margin-top:4px}
@@ -142,6 +148,7 @@ body.dark.subaru .topbar .lang-select,body.dark.subaru .topbar .sync-select{back
 <div class="tabs" id="tabBar"></div>
 
 <div class="page active" id="page-vehicle">
+  <div class="card" id="vehicleHeroCard" style="display:none"></div>
   <div class="grid2">
     <div class="card" id="batteryCard"></div>
     <div class="card" id="statusCard"></div>
@@ -149,6 +156,7 @@ body.dark.subaru .topbar .lang-select,body.dark.subaru .topbar .sync-select{back
     <div class="card" id="efficiencyCard"></div>
     <div class="card" id="remoteCard"></div>
   </div>
+  <div class="card" id="batteryHistoryCard" style="margin-top:12px"></div>
   <div class="card" id="lastTripCard" style="margin-top:12px"></div>
   <div style="margin-top:8px;text-align:right"><button class="btn" onclick="loadOverview()" id="refreshOverviewBtn"></button></div>
 </div>
@@ -558,13 +566,56 @@ async function loadOverview() {
   if (allData.brand) {
     applyBrand(allData.brand);
   }
+  renderVehicleHero(allData.vehicle, allData.battery?.solar);
   renderBattery(allData.battery);
   renderStatus(allData.status);
   renderLocation(allData.location);
   renderEfficiency(allData);
   renderRemote();
   renderLastTrip();
+  renderBatteryHistory();
   document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString(LC);
+}
+
+function renderVehicleHero(v, solar) {
+  const el = document.getElementById('vehicleHeroCard');
+  if (!v || (!v.image && !v.nickname && !v.model_name)) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  const name = v.nickname || v.model_name || '';
+  const model = v.model_year && v.model_name ? v.model_year + ' ' + v.model_name : (v.model_name || '');
+  const color = v.color || '';
+  const caps = v.capabilities || [];
+  // Add solar panel badge
+  if (solar) {
+    const solarLabel = solar.equipped ? '☀️ Solar Panel' : 'Solar Panel: N/A';
+    const solarStyle = solar.equipped ? '' : 'opacity:0.5';
+    caps.push({label: solarLabel, _style: solarStyle});
+  }
+  const capsHtml = caps.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${caps.map(c =>
+    `<span class="cap-badge" ${c._style ? 'style="'+c._style+'"' : ''}>${c.label}</span>`).join('')}</div>` : '';
+  el.innerHTML = `<div class="vehicle-hero">
+    ${v.image ? `<img src="${v.image}" alt="${name}">` : ''}
+    <div class="vehicle-hero-info">
+      <div class="vehicle-hero-name">${name}</div>
+      ${model && model !== name ? `<div class="vehicle-hero-detail">${model}</div>` : ''}
+      ${color ? `<div class="vehicle-hero-detail" style="margin-top:2px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#333;border:1px solid var(--border);vertical-align:middle;margin-right:6px"></span>${color}</div>` : ''}
+      ${v.manufactured_date || v.first_use_date ? `<div class="vehicle-hero-detail" style="margin-top:2px">${
+        v.manufactured_date ? 'Built ' + new Date(v.manufactured_date+'T00:00:00').toLocaleDateString(LC, {year:'numeric',month:'short',day:'numeric'}) : ''
+      }${v.manufactured_date && v.first_use_date ? ' · ' : ''}${
+        v.first_use_date ? 'First use ' + new Date(v.first_use_date+'T00:00:00').toLocaleDateString(LC, {year:'numeric',month:'short',day:'numeric'}) : ''
+      }</div>` : ''}
+      ${capsHtml}
+    </div>
+  </div>
+  ${v.subscriptions?.length ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+    <div class="meta" style="font-weight:600;margin-bottom:6px">Subscriptions</div>
+    ${v.subscriptions.map(s => {
+      const days = s.daysRemaining || 0;
+      const urgency = days < 90 ? 'var(--red)' : days < 365 ? 'var(--yellow)' : 'var(--green)';
+      const endFmt = s.endDate ? new Date(s.endDate+'T00:00:00').toLocaleDateString(LC, {year:'numeric',month:'short',day:'numeric'}) : '?';
+      return `<div class="row"><span class="k">${s.name}</span><span><span style="color:${urgency}">${s.type || s.status}</span> &middot; ${endFmt}</span></div>`;
+    }).join('')}
+  </div>` : ''}`;
 }
 
 function renderBattery(d) {
@@ -583,11 +634,12 @@ function renderBattery(d) {
       const kw=((100-(pct||0))/100*71.4/(d.remainingChargeTime/60));
       const lvl=kw>=20?'DC Fast (L3)':kw>=2?'Level 2':'Level 1';
       const lvlColor=kw>=20?'var(--green)':kw>=2?'var(--accent)':'var(--yellow)';
+      const ct = d.chargeType != null ? ` (type ${d.chargeType})` : '';
       return `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
       <div class="row"><span class="k">${t('battery.full_in')}</span><span>${Math.floor(d.remainingChargeTime/60)}h ${d.remainingChargeTime%60}min</span></div>
       <div class="row"><span class="k">${t('battery.full_at')}</span><span>${new Date(Date.now()+d.remainingChargeTime*60000).toLocaleTimeString(LC,{hour:'2-digit',minute:'2-digit'})}</span></div>
       <div class="row"><span class="k">${t('battery.charge_rate')}</span><span>${kw.toFixed(1)} kW</span></div>
-      <div class="row"><span class="k">Charger</span><span style="color:${lvlColor};font-weight:600">${lvl}</span></div>
+      <div class="row"><span class="k">Charger</span><span style="color:${lvlColor};font-weight:600">${lvl}${ct}</span></div>
     </div>`;})():''}
     ${d.lastUpdateTimestamp?`<div class="row"><span class="k">${t('battery.last_update')}</span><span>${fmtDate(d.lastUpdateTimestamp)}</span></div>`:''}
     <div class="meta" id="batRefreshStatus"></div>`;
@@ -687,6 +739,19 @@ function renderRemote() {
     {cmd:'find-vehicle', icon:'&#128269;', label:t('remote.find_vehicle'), tip:t('remote.find_vehicle')},
   ]);
 
+  // HVAC climate settings from battery data
+  const hvac = allData?.battery?.hvac;
+  if (hvac) {
+    h+=`<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+      <div class="meta" style="margin-bottom:6px;font-weight:600">Climate Settings (on Remote Start)</div>
+      <div class="row"><span class="k">Set Temperature</span><span>${hvac.settingTemperature != null ? hvac.settingTemperature + '\u00B0F' : '?'}</span></div>
+      <div class="row"><span class="k">Blower</span><span>${hvac.blowerOn ? 'On' : 'Off'}</span></div>
+      <div class="row"><span class="k">Front Defogger</span><span>${hvac.frontDefogger ? 'On' : 'Off'}</span></div>
+      <div class="row"><span class="k">Rear Defogger</span><span>${hvac.rearDefogger ? 'On' : 'Off'}</span></div>
+      ${hvac.hvacProhibited ? '<div class="meta" style="margin-top:4px;color:var(--yellow)">Remote climate currently unavailable</div>' : ''}
+    </div>`;
+  }
+
   h+=`<div class="meta" id="remoteStatus" style="margin-top:8px"></div>`;
   el.innerHTML=h;
   el.addEventListener('click', function(e) {
@@ -705,6 +770,85 @@ async function sendCommand(cmd) {
     if(r.error)st.textContent=t('app.error')+': '+r.error;
     else st.textContent=t('remote.sent');
   }catch(e){st.textContent=t('app.error')+': '+e.message}
+}
+
+async function renderBatteryHistory() {
+  const el = document.getElementById('batteryHistoryCard');
+  el.innerHTML = `<div class="section-title">Battery Health</div><div class="meta">Loading...</div>`;
+  try {
+    const data = await (await fetch('/api/battery-history')).json();
+    if (!data.length) { el.innerHTML = `<div class="section-title">Battery Health</div><div class="meta">No snapshots yet. Data will appear as the dashboard collects battery readings over time.</div>`; return; }
+    const W = 700, H = 220, pad = {t:20, r:20, b:40, l:50};
+    const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
+    const times = data.map(d => new Date(d.timestamp).getTime());
+    const tMin = Math.min(...times), tMax = Math.max(...times);
+    const tSpan = tMax - tMin || 1;
+    const x = t => pad.l + ((t - tMin) / tSpan) * pw;
+    const y = v => pad.t + (1 - v / 100) * ph;
+
+    // SOC line
+    let socPath = '';
+    data.forEach((d, i) => {
+      const px = x(times[i]), py = y(d.soc);
+      socPath += (i === 0 ? 'M' : 'L') + px.toFixed(1) + ',' + py.toFixed(1);
+    });
+
+    // Range line (normalize to %)
+    const ranges = data.filter(d => d.range_km != null);
+    let rangePath = '', maxRange = 0;
+    if (ranges.length > 1) {
+      maxRange = Math.max(...ranges.map(d => d.range_km));
+      ranges.forEach((d, i) => {
+        const px = x(new Date(d.timestamp).getTime());
+        const py = pad.t + (1 - d.range_km / maxRange) * ph;
+        rangePath += (i === 0 ? 'M' : 'L') + px.toFixed(1) + ',' + py.toFixed(1);
+      });
+    }
+
+    // Grid lines
+    let grid = '';
+    for (const pct of [0, 25, 50, 75, 100]) {
+      const gy = y(pct);
+      grid += `<line x1="${pad.l}" y1="${gy}" x2="${W-pad.r}" y2="${gy}" stroke="var(--border)" stroke-dasharray="3,3"/>`;
+      grid += `<text x="${pad.l-6}" y="${gy+4}" text-anchor="end" font-size="10" fill="var(--muted)">${pct}%</text>`;
+    }
+
+    // Time labels
+    const labelCount = Math.min(5, data.length);
+    let timeLabels = '';
+    for (let i = 0; i < labelCount; i++) {
+      const idx = Math.floor(i * (data.length - 1) / (labelCount - 1));
+      const tx = x(times[idx]);
+      const dt = new Date(times[idx]);
+      timeLabels += `<text x="${tx}" y="${H-5}" text-anchor="middle" font-size="10" fill="var(--muted)">${dt.toLocaleDateString(LC,{month:'short',day:'numeric'})}</text>`;
+    }
+
+    // Charging indicators
+    let chargeDots = '';
+    data.forEach((d, i) => {
+      if (d.charging_status === 'charging') {
+        chargeDots += `<circle cx="${x(times[i])}" cy="${y(d.soc)}" r="3" fill="var(--green)" opacity="0.6"/>`;
+      }
+    });
+
+    const svgHtml = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-height:250px">
+      ${grid}${timeLabels}
+      <path d="${socPath}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+      ${rangePath ? `<path d="${rangePath}" fill="none" stroke="var(--blue)" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.7"/>` : ''}
+      ${chargeDots}
+    </svg>`;
+
+    const legend = `<div style="display:flex;gap:16px;font-size:11px;color:var(--muted);margin-top:4px">
+      <span><span style="display:inline-block;width:12px;height:3px;background:var(--accent);vertical-align:middle;margin-right:4px"></span>SOC %</span>
+      ${rangePath ? `<span><span style="display:inline-block;width:12px;height:3px;background:var(--blue);vertical-align:middle;margin-right:4px;border-top:1px dashed var(--blue)"></span>Range (max ${Math.round(maxRange)} mi)</span>` : ''}
+      <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);vertical-align:middle;margin-right:4px;opacity:0.6"></span>Charging</span>
+      <span style="margin-left:auto">${data.length} snapshots</span>
+    </div>`;
+
+    el.innerHTML = `<div class="section-title">Battery Health</div>${svgHtml}${legend}`;
+  } catch (e) {
+    el.innerHTML = `<div class="section-title">Battery Health</div><div class="meta">Error: ${e.message}</div>`;
+  }
 }
 
 async function renderLastTrip() {

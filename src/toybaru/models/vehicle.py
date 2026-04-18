@@ -14,7 +14,10 @@ class Vehicle(BaseModel):
     vin: str | None = None
     alias: str | None = Field(None, alias="nickName")
     model_description: str | None = Field(None, alias="displayModelDescription")
+    model_name: str | None = Field(None, alias="modelName")
+    model_year: str | None = Field(None, alias="modelYear")
     image: str | None = None
+    color: str | None = None
     model_config = {"extra": "allow", "populate_by_name": True}
 
 

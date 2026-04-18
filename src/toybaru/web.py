@@ -184,7 +184,7 @@ async def safe_call(coro):
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    return HTMLResponse(content=(TEMPLATES_DIR / "dashboard.html").read_text())
+    return HTMLResponse(content=(TEMPLATES_DIR / "dashboard.html").read_text(encoding="utf-8"))
 
 
 @app.get("/api/brands")
@@ -385,6 +385,55 @@ async def api_all(vin: str, session: str | None = Cookie(None)):
     status = await safe_call(client.get_vehicle_status(vin))
     location = await safe_call(client.get_location(vin))
 
+    # Get vehicle info (image, color, nickname) — cached per session
+    vehicle_info: dict[str, Any] = {}
+    cache_key = f"vehicle_info_{vin}"
+    cached = getattr(client, "_cache", {}).get(cache_key)
+    if cached:
+        vehicle_info = cached
+    else:
+        try:
+            vehicles = await client.get_vehicles()
+            for v in vehicles:
+                if v.vin and v.vin.upper() == vin.upper():
+                    raw = v.model_dump(by_alias=True)
+                    caps = raw.get("capabilities", [])
+                    visible_caps = [
+                        {"name": c.get("name"), "label": c.get("displayName") or c.get("name")}
+                        for c in (caps if isinstance(caps, list) else [])
+                        if c.get("display")
+                    ]
+                    # Extract subscriptions with expiry dates
+                    subs_raw = raw.get("subscriptions", []) + raw.get("services", [])
+                    subs = [
+                        {
+                            "name": s.get("displayProductName") or s.get("productName"),
+                            "status": s.get("status"),
+                            "type": s.get("type"),
+                            "endDate": s.get("subscriptionEndDate"),
+                            "daysRemaining": s.get("subscriptionRemainingDays"),
+                        }
+                        for s in (subs_raw if isinstance(subs_raw, list) else [])
+                        if s.get("status") == "ACTIVE"
+                    ]
+                    vehicle_info = {
+                        "image": v.image,
+                        "color": v.color,
+                        "nickname": v.alias,
+                        "model_name": v.model_name,
+                        "model_year": v.model_year,
+                        "capabilities": visible_caps,
+                        "subscriptions": subs,
+                        "manufactured_date": raw.get("manufacturedDate"),
+                        "first_use_date": raw.get("dateOfFirstUse"),
+                    }
+                    break
+            if not hasattr(client, "_cache"):
+                client._cache = {}
+            client._cache[cache_key] = vehicle_info
+        except Exception:
+            pass
+
     if isinstance(battery, dict) and "error" not in battery:
         loc = location.get("vehicleLocation", {}) if isinstance(location, dict) else {}
         log_snapshot(
@@ -409,6 +458,7 @@ async def api_all(vin: str, session: str | None = Cookie(None)):
         "consumption": get_consumption_estimate(),
         "capabilities": {"trips": not client.api._is_na},
         "brand": brand_name,
+        "vehicle": vehicle_info,
     }
 
 
@@ -417,6 +467,12 @@ async def api_battery(vin: str, session: str | None = Cookie(None)):
     vin = _validate_vin(vin)
     client = await _require_client(session)
     return await safe_call(client.get_electric_status(vin))
+
+
+@app.get("/api/battery-history")
+async def api_battery_history(session: str | None = Cookie(None), limit: int = 500):
+    await _require_client(session)
+    return get_snapshot_history(min(limit, 1000))
 
 
 @app.post("/api/refresh/{vin}")
