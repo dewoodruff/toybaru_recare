@@ -14,7 +14,7 @@
     "close": "Close",
     "language": "Language",
     "days": "days",
-    "last_trip": "Last Trip",
+    "last_trip": "🛣️ Last Trip",
     "details": "Details",
     "idle_time": "Idle time",
     "overspeed": "Overspeed",
@@ -56,7 +56,7 @@
     "remote": "Remote Control"
   },
   "battery": {
-    "title": "Battery",
+    "title": "🔋 Battery",
     "soc": "State of Charge",
     "range": "Range",
     "range_ac": "Range (with AC)",
@@ -73,7 +73,7 @@
     "refresh_loading": "Loading cache..."
   },
   "status": {
-    "title": "Overview",
+    "title": "📊 Overview",
     "odometer": "Odometer",
     "last_update": "As of",
     "closed": "Closed",
@@ -95,13 +95,13 @@
     "hood": "Hood"
   },
   "location": {
-    "title": "Location",
+    "title": "📍 Location",
     "position": "Position",
     "last_update": "As of",
     "unavailable": "Not available"
   },
   "efficiency": {
-    "title": "Efficiency",
+    "title": "⚡ Efficiency",
     "current": "Current (from range)",
     "eco": "Eco",
     "eco_desc": "Energy-efficient driving mode. Moderate acceleration and speed. Best for range.",
@@ -208,7 +208,7 @@
     "error": "Error"
   },
   "remote": {
-    "title": "Remote Control",
+    "title": "🎮 Remote Control",
     "lock": "Lock",
     "unlock": "Unlock",
     "sent": "Command sent",

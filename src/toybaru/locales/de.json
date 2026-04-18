@@ -14,7 +14,7 @@
     "close": "Schliessen",
     "language": "Sprache",
     "days": "Tage",
-    "last_trip": "Letzte Fahrt",
+    "last_trip": "🛣️ Letzte Fahrt",
     "details": "Details",
     "idle_time": "Leerlauf",
     "overspeed": "Ueberschreitung",
@@ -56,7 +56,7 @@
     "remote": "Fernsteuerung"
   },
   "battery": {
-    "title": "Batterie",
+    "title": "🔋 Batterie",
     "soc": "Ladezustand",
     "range": "Reichweite",
     "range_ac": "Reichweite (mit Klima)",
@@ -73,7 +73,7 @@
     "refresh_loading": "Lade Cache..."
   },
   "status": {
-    "title": "Übersicht",
+    "title": "📊 Übersicht",
     "odometer": "Kilometerstand",
     "last_update": "Stand",
     "closed": "Zu",
@@ -95,13 +95,13 @@
     "hood": "Motorhaube"
   },
   "location": {
-    "title": "Standort",
+    "title": "📍 Standort",
     "position": "Position",
     "last_update": "Stand",
     "unavailable": "Nicht verfuegbar"
   },
   "efficiency": {
-    "title": "Effizienz",
+    "title": "⚡ Effizienz",
     "current": "Momentan (aus Reichweite)",
     "eco": "Eco",
     "eco_desc": "Sparsamer Fahrmodus. Moderate Beschleunigung und Geschwindigkeit. Ideal fuer maximale Reichweite.",
@@ -208,7 +208,7 @@
     "error": "Fehler"
   },
   "remote": {
-    "title": "Fernsteuerung",
+    "title": "🎮 Fernsteuerung",
     "lock": "Verriegeln",
     "unlock": "Entriegeln",
     "sent": "Befehl gesendet",

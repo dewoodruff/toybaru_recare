@@ -389,16 +389,8 @@ class AuthController:
                 },
             )
         except jwt.exceptions.PyJWKClientError as e:
-            logger.warning("JWKS fetch failed, falling back to unverified decode: %s", e)
-            claims = jwt.decode(
-                id_token,
-                algorithms=["RS256"],
-                options={
-                    "verify_signature": False,
-                    "verify_aud": False,
-                    "verify_exp": False,
-                },
-            )
+            logger.error("JWKS fetch failed — rejecting authentication: %s", e)
+            raise AuthenticationError(f"Cannot verify id_token (JWKS unavailable): {e}") from e
         except jwt.exceptions.InvalidTokenError as e:
             raise AuthenticationError(f"Invalid id_token: {e}") from e
 

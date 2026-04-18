@@ -220,7 +220,7 @@ async def api_locale(lang: str):
     path = LOCALES_DIR / f"{lang}.json"
     if not path.exists():
         path = LOCALES_DIR / "en.json"
-    return JSONResponse(json.loads(path.read_text()))
+    return JSONResponse(json.loads(path.read_text(encoding="utf-8")))
 
 
 # --- Auth ---
@@ -609,6 +609,8 @@ async def api_trips(vin: str, days: int = 30, session: str | None = Cookie(None)
 @app.get("/api/db/trips")
 async def api_db_trips(limit: int = 50, offset: int = 0, from_date: str | None = None, to_date: str | None = None, vin: str | None = None, session: str | None = Cookie(None)):
     await _require_client(session)
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
     return get_trips_from_db(limit=limit, offset=offset, from_date=from_date, to_date=to_date, vin=vin)
 
 
@@ -808,10 +810,16 @@ async def api_reimport(request: Request, session: str | None = Cookie(None)):
     """Re-import trips from a previously exported JSON file."""
     _require_csrf(request, session)
     await _require_client(session)
+    # Limit request body size (10 MB max)
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > 10 * 1024 * 1024:
+        return JSONResponse({"error": "Request body too large (max 10 MB)"}, status_code=413)
     body = await request.json()
     trips = body.get("trips", [])
     if not trips:
         return JSONResponse({"error": "No trips in data"}, status_code=400)
+    if len(trips) > 10000:
+        return JSONResponse({"error": "Too many trips (max 10,000)"}, status_code=400)
 
     # Convert from export format back to API format for upsert
     converted = []
@@ -871,6 +879,9 @@ async def api_reimport(request: Request, session: str | None = Cookie(None)):
 @app.get("/api/route-svg/{trip_id}")
 async def api_route_svg(trip_id: str, width: int = 800, height: int = 500, session: str | None = Cookie(None)):
     await _require_client(session)
+    # Cap SVG dimensions to prevent resource exhaustion
+    width = max(100, min(width, 4000))
+    height = max(100, min(height, 4000))
     import sqlite3
     from toybaru.database import get_db as _open_db
 
