@@ -409,6 +409,7 @@ function scoreClass(s){return s>=80?'score-good':s>=60?'score-mid':'score-bad'}
 function _escAttr(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
 const SL={
+  // EU API uses carstatus_ prefixed keys
   'carstatus_item_driver_door':'status.driver_door','carstatus_item_driver_rear_door':'status.driver_rear_door',
   'carstatus_item_driver_window':'status.driver_window','carstatus_item_driver_rear_window':'status.driver_rear_window',
   'carstatus_item_passenger_door':'status.passenger_door','carstatus_item_passenger_rear_door':'status.passenger_rear_door',

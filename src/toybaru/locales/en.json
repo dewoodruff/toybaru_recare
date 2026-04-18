@@ -73,7 +73,7 @@
     "refresh_loading": "Loading cache..."
   },
   "status": {
-    "title": "Status",
+    "title": "Overview",
     "odometer": "Odometer",
     "last_update": "As of",
     "closed": "Closed",
