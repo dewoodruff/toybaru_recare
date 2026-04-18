@@ -517,6 +517,13 @@ async def api_climate_settings(vin: str, session: str | None = Cookie(None)):
     return await safe_call(client.api.get_climate_settings(vin))
 
 
+@app.get("/api/telemetry/{vin}")
+async def api_telemetry(vin: str, session: str | None = Cookie(None)):
+    vin = _validate_vin(vin)
+    client = await _require_client(session)
+    return await safe_call(client.get_telemetry(vin))
+
+
 @app.post("/api/refresh/{vin}")
 async def api_refresh(vin: str, request: Request, session: str | None = Cookie(None)):
     vin = _validate_vin(vin)

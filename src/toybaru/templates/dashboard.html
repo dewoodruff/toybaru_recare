@@ -152,6 +152,7 @@ body.dark.subaru .topbar .lang-select,body.dark.subaru .topbar .sync-select{back
   <div class="grid2">
     <div class="card" id="batteryCard"></div>
     <div class="card" id="statusCard"></div>
+    <div class="card" id="tireCard"></div>
     <div class="card" id="locationCard"></div>
     <div class="card" id="efficiencyCard"></div>
     <div class="card" id="remoteCard"></div>
@@ -569,6 +570,7 @@ async function loadOverview() {
   renderVehicleHero(allData.vehicle, allData.battery?.solar);
   renderBattery(allData.battery);
   renderStatus(allData.status);
+  renderTirePressure(allData.telemetry);
   renderLocation(allData.location);
   renderEfficiency(allData);
   renderRemote(allData.vehicle?.remote_capabilities, allData.climate_settings);
@@ -686,6 +688,108 @@ function renderStatus(d) {
   }
   if(d.telemetry?.odo?.value!=null){const r=document.createElement('div');r.className='row';r.style.marginTop='8px';r.innerHTML=`<span class="k">${t('status.odometer')}</span><span>${d.telemetry.odo.value.toLocaleString(LC)} ${normUnit(d.telemetry.odo.unit)||distLabel()}</span>`;el.appendChild(r)}
   if(d.occurrenceDate){const r=document.createElement('div');r.className='row';r.innerHTML=`<span class="k">${t('status.last_update')}</span><span>${fmtDate(d.occurrenceDate)}</span>`;el.appendChild(r)}
+}
+
+function renderTirePressure(tel) {
+  const el=document.getElementById('tireCard');
+  if(!tel||tel.error){el.style.display='none';return}
+  const fl=tel.flTirePressure, fr=tel.frTirePressure, rl=tel.rlTirePressure, rr=tel.rrTirePressure;
+  if(!fl&&!fr&&!rl&&!rr){el.style.display='none';return}
+  el.style.display='';
+
+  function tireColor(tire){
+    if(!tire)return'var(--muted)';
+    if(tire.displayLowTirePressureWarning)return'var(--yellow)';
+    const v=tire.value;
+    if(v<30||v>50)return'var(--yellow)';
+    return'var(--green)';
+  }
+  function psiVal(tire){return tire?tire.value+'':'--'}
+  // Window: 2=closed, 1=open, 0/null=unknown
+  function winColor(v){return v===2?'var(--green)':v===1?'var(--yellow)':'var(--muted)'}
+  function winStatus(v){return v===2?'Closed':v===1?'Open':'—'}
+
+  const tires=[
+    {tire:fl,x:14,y:42,lx:-2,ly:78,label:'FL'},
+    {tire:fr,x:148,y:42,lx:148,ly:78,label:'FR'},
+    {tire:rl,x:14,y:162,lx:-2,ly:198,label:'RL'},
+    {tire:rr,x:148,y:162,lx:148,ly:198,label:'RR'},
+  ];
+
+  let tireSvg='';
+  for(const t of tires){
+    tireSvg+=`<rect x="${t.x}" y="${t.y}" width="18" height="36" rx="5" fill="${tireColor(t.tire)}" stroke="var(--border)" stroke-width="1.5" opacity="0.8"/>`;
+  }
+
+  // Window indicators inside the car body glass areas
+  const dw=tel.driverWindow, pw=tel.passengerWindow, rdw=tel.rlWindow, rpw=tel.rrWindow, sr=tel.sunRoof;
+  const hasWindows=(dw!=null||pw!=null||rdw!=null||rpw!=null);
+  let winSvg='';
+  if(hasWindows){
+    // Front windshield area split into driver/passenger halves
+    winSvg+=`<rect x="42" y="47" width="48" height="51" rx="6" fill="${winColor(dw)}" opacity="0.2"/>`;
+    winSvg+=`<rect x="92" y="47" width="46" height="51" rx="6" fill="${winColor(pw)}" opacity="0.2"/>`;
+    // Rear window area split into driver/passenger halves
+    winSvg+=`<rect x="42" y="142" width="48" height="41" rx="6" fill="${winColor(rdw)}" opacity="0.2"/>`;
+    winSvg+=`<rect x="92" y="142" width="46" height="41" rx="6" fill="${winColor(rpw)}" opacity="0.2"/>`;
+    // Small window icons in each quadrant
+    const wIco=(x,y,v)=>{
+      const c=v===2?'var(--green)':v===1?'var(--yellow)':'var(--muted)';
+      const icon=v===2
+        ?`<rect x="${x}" y="${y}" width="12" height="9" rx="2" fill="none" stroke="${c}" stroke-width="1.5"/>`
+        :`<g><rect x="${x}" y="${y}" width="12" height="9" rx="2" fill="none" stroke="${c}" stroke-width="1.5"/><line x1="${x+3}" y1="${y-2}" x2="${x+3}" y2="${y+3}" stroke="${c}" stroke-width="1.5"/><path d="M${x+1} ${y+1} L${x+5} ${y-3}" stroke="${c}" stroke-width="1" opacity="0.7"/></g>`;
+      return icon;
+    };
+    winSvg+=wIco(54,66,dw);
+    winSvg+=wIco(104,66,pw);
+    winSvg+=wIco(54,157,rdw);
+    winSvg+=wIco(104,157,rpw);
+    // Sunroof
+    if(sr!=null){
+      winSvg+=`<rect x="72" y="103" width="36" height="14" rx="4" fill="${winColor(sr)}" opacity="0.2" stroke="${winColor(sr)}" stroke-width="1"/>`;
+    }
+  }
+
+  let h=`<div class="section-title">🛞 Tires & Windows</div>`;
+  h+=`<div style="display:flex;align-items:center;justify-content:center;margin:12px 0">`;
+  h+=`<div style="position:relative;width:180px;height:240px">`;
+  h+=`<svg viewBox="0 0 180 240" width="180" height="240" style="position:absolute;top:0;left:0">
+    <rect x="30" y="30" width="120" height="180" rx="20" fill="var(--surface)" stroke="var(--border)" stroke-width="2"/>
+    <rect x="40" y="45" width="100" height="55" rx="8" fill="none" stroke="var(--border)" stroke-width="1.5" opacity="0.5"/>
+    <rect x="40" y="140" width="100" height="45" rx="8" fill="none" stroke="var(--border)" stroke-width="1.5" opacity="0.5"/>
+    ${tireSvg}
+    ${winSvg}
+    <circle cx="70" cy="82" r="10" fill="none" stroke="var(--border)" stroke-width="1.5" opacity="0.4"/>
+    <path d="M90 15 L85 25 L95 25 Z" fill="var(--muted)" opacity="0.5"/>
+  </svg>`;
+  for(const t of tires){
+    const color=tireColor(t.tire);
+    h+=`<div style="position:absolute;left:${t.lx}px;top:${t.ly}px;width:36px;text-align:center;font-size:13px;font-weight:700;color:${color}">${psiVal(t.tire)}</div>`;
+  }
+  h+=`</div></div>`;
+  h+=`<div style="text-align:center;font-size:11px;color:var(--muted);margin-bottom:8px">Tire pressure in ${fl?.unit||fr?.unit||'psi'}</div>`;
+
+  // Window status rows
+  if(hasWindows){
+    h+=`<div style="font-size:11px;color:var(--muted);margin-top:4px;margin-bottom:4px">Window Status</div>`;
+    const wins=[
+      {label:'Driver Front',v:dw},{label:'Passenger Front',v:pw},
+      {label:'Driver Rear',v:rdw},{label:'Passenger Rear',v:rpw},
+    ];
+    if(sr!=null)wins.push({label:'Sunroof',v:sr});
+    for(const w of wins){
+      const cls=w.v===2?'tag-ok':w.v===1?'tag-warn':'';
+      h+=`<div class="row"><span class="k">${w.label}</span><span class="tag ${cls}">${winStatus(w.v)}</span></div>`;
+    }
+  }
+
+  if(tel.nextService?.value!=null){
+    h+=`<div class="row" style="margin-top:8px"><span class="k">Next Service</span><span>${tel.nextService.value.toLocaleString(LC)} ${normUnit(tel.nextService.unit)||distLabel()}</span></div>`;
+  }
+  if(tel.tirePressureTimestamp){
+    h+=`<div class="row"><span class="k">Last TPMS Update</span><span>${fmtDate(tel.tirePressureTimestamp)}</span></div>`;
+  }
+  el.innerHTML=h;
 }
 
 function renderLocation(d) {

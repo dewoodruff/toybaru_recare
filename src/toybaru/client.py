@@ -107,6 +107,10 @@ class ToybaruClient:
         """Get account info."""
         return await self.api.get_account()
 
+    async def get_telemetry(self, vin: str) -> dict[str, Any]:
+        """Get telemetry data (tire pressure, odometer, trips, etc.)."""
+        return await self.api.get_telemetry(vin)
+
     async def raw_request(
         self, method: str, endpoint: str, vin: str | None = None
     ) -> dict[str, Any]:

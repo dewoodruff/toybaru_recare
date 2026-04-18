@@ -212,6 +212,13 @@ class Api:
         """Get remote climate settings (temperature, defrost, seat heat, etc.)."""
         return await self.request("GET", "/v1/global/remote/climate-settings", vin=vin)
 
+    async def get_telemetry(self, vin: str) -> dict[str, Any]:
+        """Get telemetry data including tire pressure, odometer, fuel, trips."""
+        return await self.request(
+            "GET", "/v2/telemetry", vin=vin,
+            extra_headers={"GENERATION": "17CYPLUS", "X-BRAND": "T"},
+        )
+
     @staticmethod
     def _normalize_na_electric(data: dict[str, Any]) -> dict[str, Any]:
         """Normalize NA electric status response to match EU format."""
