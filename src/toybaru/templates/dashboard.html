@@ -571,7 +571,7 @@ async function loadOverview() {
   renderStatus(allData.status);
   renderLocation(allData.location);
   renderEfficiency(allData);
-  renderRemote();
+  renderRemote(allData.vehicle?.remote_capabilities);
   renderLastTrip();
   renderBatteryHistory();
   document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString(LC);
@@ -615,6 +615,20 @@ function renderVehicleHero(v, solar) {
       const endFmt = s.endDate ? new Date(s.endDate+'T00:00:00').toLocaleDateString(LC, {year:'numeric',month:'short',day:'numeric'}) : '?';
       return `<div class="row"><span class="k">${s.name}</span><span><span style="color:${urgency}">${s.type || s.status}</span> &middot; ${endFmt}</span></div>`;
     }).join('')}
+  </div>` : ''}
+  ${(v.head_unit?.description || v.dcm?.supplier || v.katashiki_code || v.family_sharing != null) ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+    <div class="meta" style="font-weight:600;margin-bottom:6px">Vehicle Details</div>
+    ${v.head_unit?.description ? `<div class="row"><span class="k">Head Unit</span><span>${v.head_unit.description}${v.head_unit.multimedia_type ? ' (' + v.head_unit.multimedia_type + ')' : ''}</span></div>` : ''}
+    ${v.head_unit?.generation ? `<div class="row"><span class="k">Platform</span><span>${v.head_unit.generation}</span></div>` : ''}
+    ${v.dcm?.supplier ? `<div class="row"><span class="k">Telematics Module</span><span>${v.dcm.supplier}${v.dcm.hardware_type ? ' (HW ' + v.dcm.hardware_type + ')' : ''}${v.dcm.status ? ' \u00B7 ' + v.dcm.status : ''}</span></div>` : ''}
+    ${v.katashiki_code ? `<div class="row"><span class="k">Katashiki Code</span><span style="font-family:monospace;font-size:12px">${v.katashiki_code}</span></div>` : ''}
+    ${v.family_sharing != null ? `<div class="row"><span class="k">Family Sharing</span><span>${v.family_sharing ? 'Enabled' : 'Disabled'}</span></div>` : ''}
+    ${v.extended_capabilities && Object.keys(v.extended_capabilities).some(k => v.extended_capabilities[k]) ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">${
+      Object.entries(v.extended_capabilities).filter(([,val]) => val).map(([key]) => {
+        const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).replace('Capable','').trim();
+        return `<span class="cap-badge" style="background:var(--surface);color:var(--muted);border:1px solid var(--border);font-size:10px">${label}</span>`;
+      }).join('')
+    }</div>` : ''}
   </div>` : ''}`;
 }
 
@@ -702,13 +716,38 @@ function renderEfficiency(all) {
   el.innerHTML=h;
 }
 
-function renderRemote() {
+function renderRemote(remoteCaps) {
   const el=document.getElementById('remoteCard');
   let h=`<div class="section-title">${t('remote.title')}</div>`;
+  const rc = remoteCaps || {};
+
+  // Map commands to their remote capability flag
+  const capMap = {
+    'door-lock': rc.dlockUnlockCapable,
+    'door-unlock': rc.dlockUnlockCapable,
+    'trunk-lock': rc.trunkCapable || rc.trunkCommandCapable,
+    'trunk-unlock': rc.trunkCapable || rc.trunkCommandCapable,
+    'headlight-on': rc.headLightCapable || rc.headlightCommandCapable,
+    'headlight-off': rc.headLightCapable || rc.headlightCommandCapable,
+    'hazard-on': rc.hazardCapable,
+    'hazard-off': rc.hazardCapable,
+    'sound-horn': rc.hornCommandCapable,
+    'buzzer-warning': rc.hornCommandCapable,
+    'engine-start': rc.estartEnabled,
+    'engine-stop': rc.estopEnabled,
+    'find-vehicle': rc.vehicleFinderCapable,
+  };
 
   function grp(label, btns) {
     let g=`<div style="margin-bottom:8px"><div class="meta" style="margin-bottom:4px">${label}</div><div style="display:flex;gap:6px;flex-wrap:wrap">`;
-    for (const b of btns) g+=`<button class="btn btn-sm" data-cmd="${_escAttr(b.cmd)}" title="${_escAttr(b.tip)}">${b.icon} ${_escAttr(b.label)}</button>`;
+    for (const b of btns) {
+      const supported = capMap[b.cmd];
+      const disabled = supported === false;
+      const style = disabled ? 'opacity:0.35;cursor:not-allowed' : '';
+      const disAttr = disabled ? 'disabled' : '';
+      const tip = disabled ? b.tip + ' (not supported)' : b.tip;
+      g+=`<button class="btn btn-sm" data-cmd="${_escAttr(b.cmd)}" title="${_escAttr(tip)}" ${disAttr} style="${style}">${b.icon} ${_escAttr(b.label)}</button>`;
+    }
     g+=`</div></div>`;
     return g;
   }

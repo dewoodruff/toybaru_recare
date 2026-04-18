@@ -416,6 +416,15 @@ async def api_all(vin: str, session: str | None = Cookie(None)):
                         for s in (subs_raw if isinstance(subs_raw, list) else [])
                         if s.get("status") == "ACTIVE"
                     ]
+                    # Extract remote service capabilities
+                    rsc = raw.get("remoteServiceCapabilities") or {}
+                    # Extract head unit info
+                    head_unit = raw.get("headUnit") or {}
+                    # Extract DCM (connected services module) info
+                    dcm_info = raw.get("dcm") or {}
+                    # Extended capabilities (moonroof, plug&charge, etc.)
+                    ext_caps = raw.get("extendedCapabilities") or {}
+
                     vehicle_info = {
                         "image": v.image,
                         "color": v.color,
@@ -426,6 +435,26 @@ async def api_all(vin: str, session: str | None = Cookie(None)):
                         "subscriptions": subs,
                         "manufactured_date": raw.get("manufacturedDate"),
                         "first_use_date": raw.get("dateOfFirstUse"),
+                        "remote_capabilities": {
+                            k: v for k, v in rsc.items()
+                            if isinstance(v, bool) or isinstance(v, str)
+                        } if rsc else {},
+                        "head_unit": {
+                            "description": head_unit.get("description"),
+                            "generation": head_unit.get("generation"),
+                            "multimedia_type": head_unit.get("multimediaType"),
+                        } if head_unit else {},
+                        "dcm": {
+                            "supplier": dcm_info.get("supplier"),
+                            "hardware_type": dcm_info.get("hardwareType"),
+                            "status": dcm_info.get("dcmStatus"),
+                        } if dcm_info else {},
+                        "family_sharing": raw.get("familySharing"),
+                        "katashiki_code": raw.get("katashikiCode"),
+                        "extended_capabilities": {
+                            k: v for k, v in ext_caps.items()
+                            if isinstance(v, bool)
+                        } if ext_caps else {},
                     }
                     break
             if not hasattr(client, "_cache"):
